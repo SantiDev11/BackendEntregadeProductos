@@ -1,15 +1,15 @@
 # Endpoints de Permisos. Las consultas a la BD están en queries.py y las validaciones en helpers.py.
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
+from fastapi import APIRouter, Depends, Path, Query, Response, status
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.config.database import get_db
 from app.core.deps import get_current_user, require_permiso
-from app.core.docs import ERROR_401, ERROR_403, respuesta_error
-from app.modulos.permisos import queries
-from app.modulos.permisos.helpers import get_permiso_or_404, validate_unique_permiso_name
-from app.modulos.permisos.models import Permiso
+from app.core.docs import ERROR_401, ERROR_403
 from app.modulos.permisos.schemas import PermisoCreate, PermisoUpdate, PermisoOut, PermisoPaginado
 from app.modulos.usuarios.models import Usuario
+from app.modulos.permisos import services
+from app.modulos.permisos.errors import (DOC_404, DOC_400_DUPLICADO, DOC_422_ID, DOC_422_LISTAR, DOC_422_CREAR,
+                                         DOC_422_ACTUALIZAR, DOC_400_ELIMINAR)
 
 # Permiso que exige cada acción (los permisos se leen de la BD en cada petición; el rol admin siempre pasa)
 puede_ver = require_permiso("permisos_view")
@@ -23,14 +23,6 @@ router = APIRouter(
     tags=["Permisos"],
     dependencies=[Depends(get_current_user)],
 )
-
-# Errores documentados que se repiten en este router
-ERROR_404 = respuesta_error("No existe un permiso con ese id", no_existe="Permiso no encontrado")
-ERROR_400_DUPLICADO = respuesta_error(
-    "Ya hay otro permiso con ese nombre (sin distinguir mayúsculas)",
-    duplicado="Ya existe un permiso con ese nombre",
-)
-ERROR_422_ID = respuesta_error("El id de la ruta no es un número", id_invalido="permiso_id: tiene un formato inválido")
 
 
 # ===== CONSULTAS (GET) =====
@@ -60,12 +52,7 @@ Devuelve los permisos en páginas, con búsqueda por nombre y filtro por estado.
     responses={
         401: ERROR_401,
         403: ERROR_403,
-        422: respuesta_error(
-            "Algún parámetro de la consulta no es válido",
-            limit_maximo="limit: debe ser menor o igual a 100",
-            page_minimo="page: debe ser mayor o igual a 1",
-            estado_invalido="estado: tiene un formato inválido",
-        ),
+        422: DOC_422_LISTAR,
     },
 )
 def listar_permisos(
@@ -77,14 +64,7 @@ def listar_permisos(
     usuario: Usuario = Depends(puede_ver),
 ):
     """Lista los permisos con búsqueda por nombre, filtro por estado y paginación."""
-    total, permisos = queries.listar(db, q=q, estado=estado, page=page, limit=limit)
-
-    return PermisoPaginado(
-        data=[PermisoOut.model_validate(p) for p in permisos],
-        total=total,
-        page=page,
-        limit=limit,
-    )
+    return services.listar_permisos(q, estado, page, limit, db, usuario)
 
 
 @router.get(
@@ -102,7 +82,7 @@ Devuelve un permiso por su id, con su estado y sus datos de auditoría.
 **Devuelve:** el permiso, o 404 si no existe.
 """,
     response_description="El permiso encontrado",
-    responses={401: ERROR_401, 403: ERROR_403, 404: ERROR_404, 422: ERROR_422_ID},
+    responses={401: ERROR_401, 403: ERROR_403, 404: DOC_404, 422: DOC_422_ID},
 )
 def obtener_permiso(
     permiso_id: int = Path(description="Id del permiso.", examples=[1]),
@@ -110,7 +90,7 @@ def obtener_permiso(
     usuario: Usuario = Depends(puede_ver),
 ):
     """Devuelve un permiso por su id."""
-    return get_permiso_or_404(db, permiso_id)
+    return services.obtener_permiso(permiso_id, db, usuario)
 
 
 # ===== CREAR (POST) =====
@@ -139,17 +119,10 @@ Crea un permiso nuevo.
 """,
     response_description="El permiso creado, con su id y datos de auditoría",
     responses={
-        400: ERROR_400_DUPLICADO,
+        400: DOC_400_DUPLICADO,
         401: ERROR_401,
         403: ERROR_403,
-        422: respuesta_error(
-            "El cuerpo no cumple las validaciones",
-            nombre_faltante="nombre: es obligatorio",
-            nombre_vacio="nombre: no puede estar vacío",
-            nombre_largo="nombre: es demasiado largo",
-            descripcion_larga="descripcion: es demasiado largo",
-            json_invalido="El cuerpo de la petición no es un JSON válido",
-        ),
+        422: DOC_422_CREAR,
     },
 )
 def crear_permiso(
@@ -158,12 +131,7 @@ def crear_permiso(
     usuario: Usuario = Depends(puede_crear),
 ):
     """Crea un permiso nuevo y registra quién lo creó."""
-    validate_unique_permiso_name(db, datos.nombre)
-    permiso = Permiso(**datos.model_dump(), creado_por=usuario.id, actualizado_por=usuario.id)
-    db.add(permiso)
-    db.commit()
-    db.refresh(permiso)
-    return permiso
+    return services.crear_permiso(datos, db, usuario)
 
 
 # ===== EDITAR (PUT) =====
@@ -195,18 +163,11 @@ Actualiza un permiso existente. **Solo cambia los campos que se envían.**
 """,
     response_description="El permiso con los cambios aplicados",
     responses={
-        400: ERROR_400_DUPLICADO,
+        400: DOC_400_DUPLICADO,
         401: ERROR_401,
         403: ERROR_403,
-        404: ERROR_404,
-        422: respuesta_error(
-            "El id o el cuerpo no cumplen las validaciones",
-            id_invalido="permiso_id: tiene un formato inválido",
-            nombre_vacio="nombre: no puede estar vacío",
-            nombre_largo="nombre: es demasiado largo",
-            descripcion_larga="descripcion: es demasiado largo",
-            estado_invalido="estado: tiene un formato inválido",
-        ),
+        404: DOC_404,
+        422: DOC_422_ACTUALIZAR,
     },
 )
 def actualizar_permiso(
@@ -217,19 +178,7 @@ def actualizar_permiso(
 ):
     """Actualiza solo los campos enviados (los que lleguen en null se ignoran)
     y registra quién hizo el cambio. Para borrar la descripción se envía "" (cadena vacía)."""
-    permiso = get_permiso_or_404(db, permiso_id)
-    cambios = datos.model_dump(exclude_none=True)
-
-    if "nombre" in cambios:
-        validate_unique_permiso_name(db, cambios["nombre"], excluir_id=permiso_id)
-
-    for campo, valor in cambios.items():
-        setattr(permiso, campo, valor)
-    permiso.actualizado_por = usuario.id  # actualizado_en lo actualiza el mixin (onupdate)
-
-    db.commit()
-    db.refresh(permiso)
-    return permiso
+    return services.actualizar_permiso(datos, permiso_id, db, usuario)
 
 
 # ===== ELIMINAR (DELETE) =====
@@ -255,15 +204,11 @@ Elimina un permiso de forma **definitiva** (no es un borrado lógico).
 """,
     response_description="Permiso eliminado. La respuesta no tiene cuerpo",
     responses={
-        400: respuesta_error(
-            "El permiso está asignado a roles o a usuarios",
-            en_roles="No se puede eliminar: el permiso está asignado a uno o más roles",
-            en_usuarios="No se puede eliminar: el permiso está asignado a uno o más usuarios",
-        ),
+        400: DOC_400_ELIMINAR,
         401: ERROR_401,
         403: ERROR_403,
-        404: ERROR_404,
-        422: ERROR_422_ID,
+        404: DOC_404,
+        422: DOC_422_ID,
     },
 )
 def eliminar_permiso(
@@ -272,23 +217,5 @@ def eliminar_permiso(
     usuario: Usuario = Depends(puede_eliminar),
 ):
     """Elimina un permiso si no está asignado a ningún rol. Responde 204 sin cuerpo."""
-    permiso = get_permiso_or_404(db, permiso_id)
-
-    # Si el permiso está asignado a algún rol, no se borra (evita el error 500 de clave foránea)
-    asignado = queries.asignado_a_roles(db, permiso_id)
-    if asignado:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No se puede eliminar: el permiso está asignado a uno o más roles",
-        )
-
-    # Lo mismo si algún usuario lo tiene
-    if queries.asignado_a_usuarios(db, permiso_id):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No se puede eliminar: el permiso está asignado a uno o más usuarios",
-        )
-
-    db.delete(permiso)
-    db.commit()
+    services.eliminar_permiso(permiso_id, db, usuario)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

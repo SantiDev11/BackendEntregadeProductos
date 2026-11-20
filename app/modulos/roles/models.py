@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, String, ForeignKey, Table
 from sqlalchemy.orm import relationship
-from app.database import Base
+
+from app.config.database import Base
 from app.modulos.comun.mixins import EstadoAuditoriaMixin
 
 # Tabla intermedia: un rol tiene muchos permisos y un permiso está en muchos roles

@@ -51,17 +51,17 @@ Hecho con **FastAPI + SQLAlchemy + MySQL**. Lo consume un frontend en Vue.
    - Se puede correr varias veces: lo que ya existe no se duplica.
 
    ```powershell
-   python -m app.seed
+   python -m app.config.seed
    ```
 
 5. **Levantar el servidor:**
 
    ```powershell
-   uvicorn app.main:app --reload
+   uvicorn app.config.main:app --reload
    ```
 
-   - Para que otro equipo de la red (por ejemplo, el frontend) pueda llamarlo: `uvicorn app.main:app --reload --host 0.0.0.0 --port 8000`. Hay que permitir el puerto 8000 en el firewall.
-   - La URL del frontend tiene que estar en `allow_origins` del CORS en `app/main.py`.
+   - Para que otro equipo de la red (por ejemplo, el frontend) pueda llamarlo: `uvicorn app.config.main:app --reload --host 0.0.0.0 --port 8000`. Hay que permitir el puerto 8000 en el firewall.
+   - La URL del frontend tiene que estar en `allow_origins` del CORS en `app/config/main.py`.
 
 Documentación interactiva: **http://localhost:8000/docs**
 
@@ -79,16 +79,17 @@ Documentación interactiva: **http://localhost:8000/docs**
 
 ```
 app/
-├── main.py            # crea la app, CORS, /docs y registra los routers
-├── database.py        # conexión a MySQL (lee DATABASE_URL del .env)
-├── seed.py            # datos iniciales
+├── config/            # configuración y arranque
+│   ├── main.py        # crea la app, CORS, /docs y registra los routers
+│   ├── database.py    # conexión a MySQL (lee DATABASE_URL del .env)
+│   └── seed.py        # datos iniciales
 ├── core/              # código compartido
 │   ├── deps.py        # usuario del token y require_permiso(...)
 │   ├── jwt.py         # crear y leer tokens
 │   ├── security.py    # hash de contraseñas
 │   ├── permisos.py    # catálogo de permisos y plantillas por rol
-│   ├── errors.py      # formato de errores 422 en español
-│   └── docs.py        # ejemplos de errores para /docs
+│   ├── errors.py      # formato de los 422 en español y errores base (error_400, error_404...)
+│   └── docs.py        # formato de los errores en /docs y página /docs ordenada
 └── modulos/           # un módulo por recurso
     ├── auth/  tipos/  bodegas/  permisos/  roles/  usuarios/  facturas/
     └── comun/         # mixin de estado y auditoría
@@ -99,11 +100,15 @@ Cada módulo tiene estos archivos:
 
 | Archivo | Contenido |
 |---|---|
-| `models.py` | Tablas |
+| `router.py` | Solo las rutas y su documentación; cada endpoint llama a `services` |
+| `services.py` | La lógica de cada endpoint (crear, editar, eliminar...) |
+| `helpers.py` | Validaciones y reglas (comprueban y lanzan el error que corresponde) |
+| `errors.py` | Los mensajes de error, una función por error (`raise errors.bodega_no_encontrada()`) y los ejemplos de error de /docs |
+| `queries.py` | Consultas a la base de datos |
 | `schemas.py` | Entrada y salida (Pydantic) |
-| `queries.py` | Consultas |
-| `helpers.py` | Validaciones y reglas |
-| `router.py` | Endpoints |
+| `models.py` | Tablas |
+
+Flujo de una petición: `router` → `services` → `helpers` (valida, y si algo falla lanza un error de `errors`) → `queries` (BD).
 
 ## Endpoints
 

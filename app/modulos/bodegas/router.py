@@ -1,15 +1,15 @@
-# Endpoints de Bodegas. El usuario que no es admin solo ve y maneja las bodegas que le pertenecen.
-# Las consultas a la BD están en queries.py y las validaciones en helpers.py.
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
+# Endpoints de Bodegas: solo las rutas y su documentación.
+# La lógica está en services.py, las validaciones en helpers.py, las consultas en queries.py
+# y los errores (mensajes y ejemplos para /docs) en errors.py.
+from fastapi import APIRouter, Depends, Path, Query, Response, status
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.config.database import get_db
 from app.core.deps import get_current_user, require_permiso
-from app.core.docs import ERROR_401, ERROR_403, respuesta_error
-from app.modulos.bodegas import queries
-from app.modulos.bodegas.helpers import (MSG_BODEGUERO_INVALIDO, MSG_CODIGO_DUPLICADO, es_admin, get_bodega_or_404,
-                                         validate_bodeguero, validate_unique_bodega_codigo, validate_unique_bodega_name)
-from app.modulos.bodegas.models import Bodega
+from app.core.docs import ERROR_401, ERROR_403
+from app.modulos.bodegas import services
+from app.modulos.bodegas.errors import (DOC_400_ELIMINAR, DOC_400_GUARDAR, DOC_404, DOC_422_CREAR, DOC_422_EDITAR,
+                                        DOC_422_ID, DOC_422_LISTAR)
 from app.modulos.bodegas.schemas import BodegaCreate, BodegaUpdate, BodegaOut, BodegaPaginado
 from app.modulos.usuarios.models import Usuario
 
@@ -25,24 +25,6 @@ router = APIRouter(
     tags=["Bodegas"],
     dependencies=[Depends(get_current_user)],
 )
-
-# Mensajes de error
-
-# Errores documentados que se repiten en este router
-ERROR_404 = respuesta_error("No existe una bodega con ese id, o no le pertenece al bodeguero",
-                            no_existe="Bodega no encontrada")
-ERROR_400_DUPLICADO = respuesta_error(
-    "Ya hay otra bodega con ese nombre o con ese código (sin distinguir mayúsculas)",
-    duplicado="Ya existe una bodega con ese nombre",
-    codigo_duplicado=MSG_CODIGO_DUPLICADO,
-)
-ERROR_400_GUARDAR = respuesta_error(
-    "Nombre o código repetido, o bodeguero inválido (admin)",
-    duplicado="Ya existe una bodega con ese nombre",
-    codigo_duplicado=MSG_CODIGO_DUPLICADO,
-    bodeguero_invalido=MSG_BODEGUERO_INVALIDO,
-)
-ERROR_422_ID = respuesta_error("El id de la ruta no es un número", id_invalido="bodega_id: tiene un formato inválido")
 
 
 # ===== CONSULTAS (GET) =====
@@ -76,12 +58,7 @@ Devuelve las bodegas en páginas, con búsqueda por nombre y filtros.
     responses={
         401: ERROR_401,
         403: ERROR_403,
-        422: respuesta_error(
-            "Algún parámetro de la consulta no es válido",
-            limit_maximo="limit: debe ser menor o igual a 100",
-            page_minimo="page: debe ser mayor o igual a 1",
-            estado_invalido="estado: tiene un formato inválido",
-        ),
+        422: DOC_422_LISTAR,
     },
 )
 def listar_bodegas(
@@ -94,17 +71,7 @@ def listar_bodegas(
     usuario: Usuario = Depends(puede_ver),
 ):
     """Lista las bodegas con búsqueda, filtros y paginación. El bodeguero solo ve las suyas."""
-    if not es_admin(usuario):
-        bodeguero_id = usuario.id  # el bodeguero siempre ve solo sus bodegas
-
-    total, bodegas = queries.listar(db, q=q, estado=estado, bodeguero_id=bodeguero_id, page=page, limit=limit)
-
-    return BodegaPaginado(
-        data=[BodegaOut.model_validate(b) for b in bodegas],
-        total=total,
-        page=page,
-        limit=limit,
-    )
+    return services.listar(db, usuario, q=q, estado=estado, bodeguero_id=bodeguero_id, page=page, limit=limit)
 
 
 @router.get(
@@ -124,7 +91,7 @@ Devuelve una bodega por su id, con su dueño, su estado y sus datos de auditorí
 **Devuelve:** la bodega, o 404 si no existe (o si es de otro bodeguero).
 """,
     response_description="La bodega encontrada",
-    responses={401: ERROR_401, 403: ERROR_403, 404: ERROR_404, 422: ERROR_422_ID},
+    responses={401: ERROR_401, 403: ERROR_403, 404: DOC_404, 422: DOC_422_ID},
 )
 def obtener_bodega(
     bodega_id: int = Path(description="Id de la bodega.", examples=[1]),
@@ -132,7 +99,7 @@ def obtener_bodega(
     usuario: Usuario = Depends(puede_ver),
 ):
     """Devuelve una bodega por su id (el bodeguero solo las suyas)."""
-    return get_bodega_or_404(db, bodega_id, usuario)
+    return services.obtener(db, bodega_id, usuario)
 
 
 # ===== CREAR (POST) =====
@@ -170,18 +137,10 @@ Crea una bodega nueva.
 """,
     response_description="La bodega creada, con su id, su dueño y datos de auditoría",
     responses={
-        400: ERROR_400_GUARDAR,
+        400: DOC_400_GUARDAR,
         401: ERROR_401,
         403: ERROR_403,
-        422: respuesta_error(
-            "El cuerpo no cumple las validaciones",
-            faltantes="codigo: es obligatorio; direccion: es obligatorio; ciudad: es obligatorio; ...",
-            nombre_vacio="nombre: no puede estar vacío",
-            nombre_largo="nombre: es demasiado largo",
-            codigo_largo="codigo: es demasiado largo",
-            correo_invalido="correo: formato de correo inválido",
-            json_invalido="El cuerpo de la petición no es un JSON válido",
-        ),
+        422: DOC_422_CREAR,
     },
 )
 def crear_bodega(
@@ -190,23 +149,7 @@ def crear_bodega(
     usuario: Usuario = Depends(puede_crear),
 ):
     """Crea una bodega nueva, define su dueño y registra quién la creó."""
-    validate_unique_bodega_name(db, datos.nombre)
-
-    valores = datos.model_dump()
-    valores["codigo"] = valores["codigo"].upper()  # el código siempre se guarda en mayúsculas
-    validate_unique_bodega_codigo(db, valores["codigo"])
-
-    if es_admin(usuario):
-        if valores.get("bodeguero_id") is not None:
-            validate_bodeguero(db, valores["bodeguero_id"])
-    else:
-        valores["bodeguero_id"] = usuario.id  # el bodeguero siempre queda como dueño de lo que crea
-
-    bodega = Bodega(**valores, creado_por=usuario.id, actualizado_por=usuario.id)
-    db.add(bodega)
-    db.commit()
-    db.refresh(bodega)
-    return bodega
+    return services.crear(db, datos, usuario)
 
 
 # ===== EDITAR (PUT) =====
@@ -245,19 +188,11 @@ Actualiza una bodega existente. **Solo cambia los campos que se envían.**
 """,
     response_description="La bodega con los cambios aplicados",
     responses={
-        400: ERROR_400_GUARDAR,
+        400: DOC_400_GUARDAR,
         401: ERROR_401,
         403: ERROR_403,
-        404: ERROR_404,
-        422: respuesta_error(
-            "El id o el cuerpo no cumplen las validaciones",
-            id_invalido="bodega_id: tiene un formato inválido",
-            nombre_vacio="nombre: no puede estar vacío",
-            nombre_largo="nombre: es demasiado largo",
-            direccion_larga="direccion: es demasiado largo",
-            correo_invalido="correo: formato de correo inválido",
-            estado_invalido="estado: tiene un formato inválido",
-        ),
+        404: DOC_404,
+        422: DOC_422_EDITAR,
     },
 )
 def actualizar_bodega(
@@ -266,31 +201,8 @@ def actualizar_bodega(
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(puede_editar),
 ):
-    """Actualiza solo los campos enviados (los que lleguen en null se ignoran)
-    y registra quién hizo el cambio. Ningún dato puede quedar vacío (lo valida el schema)."""
-    bodega = get_bodega_or_404(db, bodega_id, usuario)
-    cambios = datos.model_dump(exclude_none=True)  # null = no se cambia
-
-    # Solo el admin puede cambiar el dueño; si lo envía un bodeguero, se ignora
-    if not es_admin(usuario):
-        cambios.pop("bodeguero_id", None)
-    elif "bodeguero_id" in cambios:
-        validate_bodeguero(db, cambios["bodeguero_id"])
-
-    if "nombre" in cambios:
-        validate_unique_bodega_name(db, cambios["nombre"], excluir_id=bodega_id)
-
-    if cambios.get("codigo"):
-        cambios["codigo"] = cambios["codigo"].upper()  # el código siempre se guarda en mayúsculas
-        validate_unique_bodega_codigo(db, cambios["codigo"], excluir_id=bodega_id)
-
-    for campo, valor in cambios.items():
-        setattr(bodega, campo, valor)
-    bodega.actualizado_por = usuario.id  # actualizado_en lo actualiza el mixin (onupdate)
-
-    db.commit()
-    db.refresh(bodega)
-    return bodega
+    """Actualiza solo los campos enviados y registra quién hizo el cambio."""
+    return services.actualizar(db, bodega_id, datos, usuario)
 
 
 # ===== ELIMINAR (DELETE) =====
@@ -317,10 +229,8 @@ Elimina una bodega de forma **definitiva** (no es un borrado lógico).
 """,
     response_description="Bodega eliminada. La respuesta no tiene cuerpo",
     responses={
-        400: respuesta_error("La bodega tiene facturas o tipos",
-                             en_uso="No se puede eliminar: la bodega tiene facturas",
-                             con_tipos="No se puede eliminar: la bodega tiene tipos"),
-        401: ERROR_401, 403: ERROR_403, 404: ERROR_404, 422: ERROR_422_ID,
+        400: DOC_400_ELIMINAR,
+        401: ERROR_401, 403: ERROR_403, 404: DOC_404, 422: DOC_422_ID,
     },
 )
 def eliminar_bodega(
@@ -329,17 +239,5 @@ def eliminar_bodega(
     usuario: Usuario = Depends(puede_eliminar),
 ):
     """Elimina una bodega (el bodeguero solo las suyas). Responde 204 sin cuerpo."""
-    bodega = get_bodega_or_404(db, bodega_id, usuario)
-
-    # Si la bodega tiene facturas, no se borra (evita el error 500 de clave foránea)
-    if queries.tiene_facturas(db, bodega_id):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                            detail="No se puede eliminar: la bodega tiene facturas")
-    # Tampoco si tiene tipos en su catálogo (primero hay que borrarlos o moverlos)
-    if queries.tiene_tipos(db, bodega_id):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                            detail="No se puede eliminar: la bodega tiene tipos")
-
-    db.delete(bodega)
-    db.commit()
+    services.eliminar(db, bodega_id, usuario)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

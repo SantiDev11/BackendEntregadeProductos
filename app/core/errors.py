@@ -2,7 +2,7 @@
 #   {"detail": "texto legible", "errores": {"campo": "mensaje", "detalle[0].cantidad": "mensaje"}}
 # "detail" es un solo texto con todo (compatible con lo que ya usa el frontend);
 # "errores" trae un mensaje por campo, con la ruta completa (incluye la posición en las listas).
-from fastapi import Request
+from fastapi import HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
@@ -103,3 +103,27 @@ def error_422(campo: str, mensaje: str, origen: str = "body") -> RequestValidati
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Responde 422 con un texto que resume todos los errores y un mensaje por campo."""
     return respuesta_422(exc.errors())
+
+
+# ===== ERRORES HTTP BASE =====
+# Cada módulo tiene su errors.py con sus mensajes; estas funciones solo arman la excepción.
+# Se usan así:  raise error_404("Bodega no encontrada")
+
+def error_400(mensaje: str) -> HTTPException:
+    """Petición válida pero que rompe una regla del negocio (duplicado, en uso, estado inválido...)."""
+    return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=mensaje)
+
+
+def error_401(mensaje: str) -> HTTPException:
+    """No se pudo identificar al usuario (por ejemplo, credenciales incorrectas en el login)."""
+    return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=mensaje)
+
+
+def error_403(mensaje: str) -> HTTPException:
+    """El usuario no puede hacer esta acción."""
+    return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=mensaje)
+
+
+def error_404(mensaje: str) -> HTTPException:
+    """No existe (o el usuario no puede verlo)."""
+    return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=mensaje)

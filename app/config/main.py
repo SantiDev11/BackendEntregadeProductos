@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 
-from app.database import Base, engine
+from app.config.database import Base, engine
 import app.modulos  # registra todos los modelos para que create_all los vea
 from app.modulos.auth import router as auth
 from app.modulos.tipos import router as tipos
@@ -37,8 +37,30 @@ TAGS = [
     {"name": "Inicio", "description": "Comprobar que la API está funcionando."},
 ]
 
+# Descripción del proyecto que aparece debajo del título en /docs
+DESCRIPCION = """
+API para gestionar la **entrega de productos desde bodegas a clientes**, con **factura electrónica simulada**.
+
+**Qué hace:**
+- Cada bodega tiene su propio catálogo de **tipos de producto**.
+- El bodeguero crea una **factura** (orden de entrega) para un cliente, con sus líneas de productos. El servidor calcula
+  descuentos, IVA y totales, y le asigna número (`FE-0001`), CUFE simulado y QR.
+- La factura sigue este flujo: **emitida** → **entregada** al cliente → el cliente la **firma** (acepta) o la
+  **rechaza** con un motivo → el bodeguero la marca como **recibida**. En cualquier momento se puede descargar en **PDF**.
+
+**Roles:**
+- **Admin:** gestiona todo (usuarios, roles, permisos, bodegas, tipos y facturas).
+- **Bodeguero:** maneja sus bodegas y sus tipos, y emite y entrega facturas. Solo ve las facturas que creó.
+- **Cliente:** ve sus facturas, las acepta con su firma o las rechaza.
+
+**Seguridad:**
+- Inicia sesión con `POST /login`, copia el `access_token` y pégalo en el botón **Authorize**.
+- Cada endpoint exige un permiso que se revisa por usuario.
+"""
+
 # docs_url=None: el /docs por defecto se reemplaza por uno con los endpoints ordenados
-app = FastAPI(title="Entrega de Productos", lifespan=lifespan, docs_url=None, openapi_tags=TAGS)
+app = FastAPI(title="Entrega de Productos", description=DESCRIPCION, version="1.0.0",
+              lifespan=lifespan, docs_url=None, openapi_tags=TAGS)
 configurar_docs(app)
 
 # CORS: permite que el frontend (Vue) llame a la API

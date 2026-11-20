@@ -12,10 +12,10 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # carpeta del proyecto
 
-from app.database import SessionLocal
+from app.config.database import SessionLocal
 from app.modulos.roles.models import Rol
 from app.modulos.usuarios.models import Usuario
-from app.seed import aplicar_plantillas, crear_catalogo, renombrar_permisos
+from app.config.seed import aplicar_plantillas, crear_catalogo, renombrar_permisos
 
 
 def main():

@@ -1,14 +1,13 @@
 # Lógica de negocio de las facturas: cálculos, numeración, CUFE simulado, armado de la respuesta
-# y validaciones que usan los endpoints (lanzan el error HTTP que corresponde).
+# y validaciones que usan los endpoints. Si algo no se cumple, lanzan el error de errors.py.
 import hashlib
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 
-from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.modulos.bodegas.models import Bodega
-from app.modulos.facturas import queries
+from app.modulos.facturas import errors, queries
 from app.modulos.facturas.emisor import EMISOR, PREFIJO_FACTURA, RESOLUCION, SOFTWARE
 from app.modulos.facturas.models import Orden, OrdenDetalle
 from app.modulos.usuarios.models import Usuario
@@ -209,12 +208,6 @@ def factura_resumen(orden: Orden) -> dict:
 
 # ===== VALIDACIONES Y REGLAS QUE USAN LOS ENDPOINTS =====
 
-MSG_ESTADO_INVALIDO = "La factura no está en un estado válido para esta acción"
-MSG_CLIENTE = "El cliente indicado no existe o no es un cliente activo"
-MSG_BODEGA = "La bodega indicada no existe, está inactiva o no le pertenece"
-MSG_TIPOS = "Uno o más tipos no existen"
-MSG_TIPOS_BODEGA = "Uno o más tipos no pertenecen a la bodega de la factura"
-
 
 def es_cliente(usuario: Usuario) -> bool:
     return usuario.rol.nombre == "cliente"
@@ -247,7 +240,7 @@ def get_factura_or_404(db: Session, factura_id: int, usuario: Usuario) -> Orden:
     para no revelar que existe aunque tenga el link directo."""
     orden = queries.obtener_completa(db, factura_id)
     if orden is None or not puede_ver_factura(orden, usuario):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Factura no encontrada")
+        raise errors.factura_no_encontrada()
     return orden
 
 
@@ -260,21 +253,20 @@ def cargar_factura(db: Session, factura_id: int) -> dict:
 def validar_cliente_de_la_factura(orden: Orden, usuario: Usuario) -> None:
     """Solo el cliente de la factura puede aceptarla o rechazarla (ni siquiera el admin en su nombre)."""
     if orden.cliente_id != usuario.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
-                            detail="Solo el cliente de la factura puede aceptarla o rechazarla")
+        raise errors.solo_el_cliente()
 
 
 def validar_estado(orden: Orden, *permitidos: str) -> None:
     """Lanza 400 si la factura no está en alguno de los estados permitidos."""
     if orden.estado_orden not in permitidos:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=MSG_ESTADO_INVALIDO)
+        raise errors.estado_invalido()
 
 
 def validate_cliente(db: Session, cliente_id: int) -> Usuario:
     """El adquiriente debe ser un usuario con rol cliente y activo."""
     cliente = queries.cliente_activo(db, cliente_id)
     if cliente is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=MSG_CLIENTE)
+        raise errors.cliente_invalido()
     return cliente
 
 
@@ -283,7 +275,7 @@ def validate_bodega(db: Session, bodega_id: int, usuario: Usuario) -> Bodega:
     bodega = queries.obtener_bodega(db, bodega_id)
     ajena = usuario.rol.nombre == "bodeguero" and bodega is not None and bodega.bodeguero_id != usuario.id
     if bodega is None or not bodega.estado or ajena:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=MSG_BODEGA)
+        raise errors.bodega_invalida()
     return bodega
 
 
@@ -294,9 +286,9 @@ def validate_tipos(db: Session, lineas, bodega_id: int) -> None:
         return
     tipos = queries.tipos_por_ids(db, ids)
     if len(tipos) != len(ids):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=MSG_TIPOS)
+        raise errors.tipos_no_existen()
     if any(t.bodega_id not in (None, bodega_id) for t in tipos):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=MSG_TIPOS_BODEGA)
+        raise errors.tipos_de_otra_bodega()
 
 
 def sellar(orden: Orden) -> None:

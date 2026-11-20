@@ -1,18 +1,17 @@
 # Endpoints de Tipos. Cada tipo pertenece a una bodega (catálogo por bodega).
-# Las consultas a la BD están en queries.py y las validaciones en helpers.py.
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
+# Aquí solo están las rutas y su documentación. La lógica está en services.py, las validaciones
+# en helpers.py, las consultas en queries.py y los errores (mensajes y ejemplos /docs) en errors.py.
+from fastapi import APIRouter, Depends, Path, Query, Response, status
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.config.database import get_db
 from app.core.deps import get_current_user, require_permiso
-from app.core.docs import ERROR_401, respuesta_error
-from app.modulos.tipos import queries
-from app.modulos.tipos.helpers import (MSG_BODEGA_INVALIDA, MSG_SIN_BODEGA, MSG_TIPO_AJENO, MSG_VARIAS_BODEGAS,
-                                       bodega_para_nuevo_tipo, bodegas_permitidas, es_admin, get_tipo_or_404,
-                                       validate_bodega_existe, validate_unique_tipo_name)
-from app.modulos.tipos.models import Tipo
+from app.core.docs import ERROR_401
 from app.modulos.tipos.schemas import TipoCreate, TipoUpdate, TipoOut, TipoPaginado
 from app.modulos.usuarios.models import Usuario
+from app.modulos.tipos import services
+from app.modulos.tipos.errors import (DOC_404, DOC_403_TIPO, DOC_422_ID, DOC_403_LISTAR, DOC_422_LISTAR, DOC_400_CREAR,
+                                      DOC_422_CREAR, DOC_400_ACTUALIZAR, DOC_422_ACTUALIZAR, DOC_400_ELIMINAR)
 
 # Permiso que exige cada acción (los permisos se leen de la BD en cada petición; el rol admin siempre pasa)
 puede_ver = require_permiso("tipos_view")
@@ -29,15 +28,6 @@ router = APIRouter(
 
 ALCANCE = ("**Alcance:** el `admin` maneja todos los tipos. Cualquier otro usuario solo los de **sus bodegas** "
            "(las que tienen `bodeguero_id` = su id).")
-
-# Errores documentados que se repiten en este router
-ERROR_404 = respuesta_error("No existe un tipo con ese id", no_existe="Tipo no encontrado")
-ERROR_403_TIPO = respuesta_error(
-    "Sin el permiso, o el tipo es de una bodega que no es del usuario",
-    sin_permiso="No tiene permiso para esta acción",
-    tipo_ajeno=MSG_TIPO_AJENO,
-)
-ERROR_422_ID = respuesta_error("El id de la ruta no es un número", id_invalido="tipo_id: tiene un formato inválido")
 
 
 # ===== CONSULTAS (GET) =====
@@ -71,14 +61,8 @@ Devuelve los tipos en páginas, con búsqueda por nombre y filtros por estado y 
     response_description="Página de tipos con el total que cumple los filtros",
     responses={
         401: ERROR_401,
-        403: respuesta_error("Sin el permiso", sin_permiso="No tiene permiso para esta acción"),
-        422: respuesta_error(
-            "Algún parámetro de la consulta no es válido",
-            limit_maximo="limit: debe ser menor o igual a 100",
-            page_minimo="page: debe ser mayor o igual a 1",
-            estado_invalido="estado: tiene un formato inválido",
-            bodega_invalida="bodega_id: tiene un formato inválido",
-        ),
+        403: DOC_403_LISTAR,
+        422: DOC_422_LISTAR,
     },
 )
 def listar_tipos(
@@ -91,15 +75,7 @@ def listar_tipos(
     usuario: Usuario = Depends(puede_ver),
 ):
     """Lista los tipos con búsqueda, filtros y paginación. Quien no es admin solo ve los de sus bodegas."""
-    total, tipos = queries.listar(db, q=q, estado=estado, bodega_id=bodega_id,
-                                  bodegas_permitidas=bodegas_permitidas(db, usuario), page=page, limit=limit)
-
-    return TipoPaginado(
-        data=[TipoOut.model_validate(t) for t in tipos],
-        total=total,
-        page=page,
-        limit=limit,
-    )
+    return services.listar_tipos(q, estado, bodega_id, page, limit, db, usuario)
 
 
 @router.get(
@@ -119,7 +95,7 @@ Devuelve un tipo por su id, con su bodega, su estado y sus datos de auditoría.
 **Devuelve:** el tipo, 404 si no existe o 403 si es de otra bodega.
 """,
     response_description="El tipo encontrado",
-    responses={401: ERROR_401, 403: ERROR_403_TIPO, 404: ERROR_404, 422: ERROR_422_ID},
+    responses={401: ERROR_401, 403: DOC_403_TIPO, 404: DOC_404, 422: DOC_422_ID},
 )
 def obtener_tipo(
     tipo_id: int = Path(description="Id del tipo.", examples=[1]),
@@ -127,7 +103,7 @@ def obtener_tipo(
     usuario: Usuario = Depends(puede_ver),
 ):
     """Devuelve un tipo por su id (si es de una de las bodegas del usuario, o si es admin)."""
-    return get_tipo_or_404(db, tipo_id, usuario)
+    return services.obtener_tipo(tipo_id, db, usuario)
 
 
 # ===== CREAR (POST) =====
@@ -162,22 +138,10 @@ Crea un tipo nuevo en una bodega.
 """,
     response_description="El tipo creado, con su bodega y datos de auditoría",
     responses={
-        400: respuesta_error(
-            "Nombre repetido en la bodega, o problema con la bodega",
-            duplicado="Ya existe un tipo con ese nombre en esta bodega",
-            sin_bodega=MSG_SIN_BODEGA,
-            varias_bodegas=MSG_VARIAS_BODEGAS,
-            bodega_invalida=MSG_BODEGA_INVALIDA,
-        ),
+        400: DOC_400_CREAR,
         401: ERROR_401,
-        403: respuesta_error("Sin el permiso", sin_permiso="No tiene permiso para esta acción"),
-        422: respuesta_error(
-            "El cuerpo no cumple las validaciones",
-            nombre_faltante="nombre: es obligatorio",
-            nombre_vacio="nombre: no puede estar vacío",
-            nombre_largo="nombre: es demasiado largo",
-            json_invalido="El cuerpo de la petición no es un JSON válido",
-        ),
+        403: DOC_403_LISTAR,
+        422: DOC_422_CREAR,
     },
 )
 def crear_tipo(
@@ -186,16 +150,7 @@ def crear_tipo(
     usuario: Usuario = Depends(puede_crear),
 ):
     """Crea un tipo en la bodega que corresponde y registra quién lo creó."""
-    bodega_id = bodega_para_nuevo_tipo(db, usuario, datos.bodega_id)
-    validate_unique_tipo_name(db, datos.nombre, bodega_id)
-
-    valores = datos.model_dump()
-    valores["bodega_id"] = bodega_id
-    tipo = Tipo(**valores, creado_por=usuario.id, actualizado_por=usuario.id)
-    db.add(tipo)
-    db.commit()
-    db.refresh(tipo)
-    return tipo
+    return services.crear_tipo(datos, db, usuario)
 
 
 # ===== EDITAR (PUT) =====
@@ -228,21 +183,11 @@ Actualiza un tipo existente. **Solo cambia los campos que se envían.**
 """,
     response_description="El tipo con los cambios aplicados",
     responses={
-        400: respuesta_error(
-            "Nombre repetido en la bodega, o bodega inválida (admin)",
-            duplicado="Ya existe un tipo con ese nombre en esta bodega",
-            bodega_invalida=MSG_BODEGA_INVALIDA,
-        ),
+        400: DOC_400_ACTUALIZAR,
         401: ERROR_401,
-        403: ERROR_403_TIPO,
-        404: ERROR_404,
-        422: respuesta_error(
-            "El id o el cuerpo no cumplen las validaciones",
-            id_invalido="tipo_id: tiene un formato inválido",
-            nombre_vacio="nombre: no puede estar vacío",
-            nombre_largo="nombre: es demasiado largo",
-            estado_invalido="estado: tiene un formato inválido",
-        ),
+        403: DOC_403_TIPO,
+        404: DOC_404,
+        422: DOC_422_ACTUALIZAR,
     },
 )
 def actualizar_tipo(
@@ -253,27 +198,7 @@ def actualizar_tipo(
 ):
     """Actualiza solo los campos enviados (los que lleguen en null se ignoran)
     y registra quién hizo el cambio."""
-    tipo = get_tipo_or_404(db, tipo_id, usuario)
-    cambios = datos.model_dump(exclude_none=True)
-
-    # Solo el admin puede mover el tipo a otra bodega; si lo envía otro usuario, se ignora
-    if not es_admin(usuario):
-        cambios.pop("bodega_id", None)
-    elif "bodega_id" in cambios:
-        validate_bodega_existe(db, cambios["bodega_id"])
-
-    # El nombre se valida contra la bodega en la que va a quedar el tipo
-    if "nombre" in cambios or "bodega_id" in cambios:
-        validate_unique_tipo_name(db, cambios.get("nombre", tipo.nombre),
-                                  cambios.get("bodega_id", tipo.bodega_id), excluir_id=tipo_id)
-
-    for campo, valor in cambios.items():
-        setattr(tipo, campo, valor)
-    tipo.actualizado_por = usuario.id  # actualizado_en lo actualiza el mixin (onupdate)
-
-    db.commit()
-    db.refresh(tipo)
-    return tipo
+    return services.actualizar_tipo(datos, tipo_id, db, usuario)
 
 
 # ===== ELIMINAR (DELETE) =====
@@ -300,8 +225,8 @@ Elimina un tipo de forma **definitiva** (no es un borrado lógico).
 """,
     response_description="Tipo eliminado. La respuesta no tiene cuerpo",
     responses={
-        400: respuesta_error("El tipo está usado en facturas", en_uso="No se puede eliminar: el tipo está usado en facturas"),
-        401: ERROR_401, 403: ERROR_403_TIPO, 404: ERROR_404, 422: ERROR_422_ID,
+        400: DOC_400_ELIMINAR,
+        401: ERROR_401, 403: DOC_403_TIPO, 404: DOC_404, 422: DOC_422_ID,
     },
 )
 def eliminar_tipo(
@@ -310,13 +235,5 @@ def eliminar_tipo(
     usuario: Usuario = Depends(puede_eliminar),
 ):
     """Elimina un tipo (si es de una de las bodegas del usuario, o si es admin). Responde 204 sin cuerpo."""
-    tipo = get_tipo_or_404(db, tipo_id, usuario)
-
-    # Si el tipo está usado en alguna línea de factura, no se borra (evita el error 500 de clave foránea)
-    if queries.usado_en_facturas(db, tipo_id):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                            detail="No se puede eliminar: el tipo está usado en facturas")
-
-    db.delete(tipo)
-    db.commit()
+    services.eliminar_tipo(tipo_id, db, usuario)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

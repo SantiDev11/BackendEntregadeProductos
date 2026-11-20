@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, String, ForeignKey, Table
 from sqlalchemy.orm import relationship
-from app.database import Base
+
+from app.config.database import Base
 from app.modulos.comun.mixins import EstadoAuditoriaMixin
 
 # Tabla intermedia: permisos de cada usuario (son sus permisos efectivos).

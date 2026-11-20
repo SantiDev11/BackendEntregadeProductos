@@ -1,6 +1,7 @@
 from sqlalchemy import Column, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
-from app.database import Base
+
+from app.config.database import Base
 from app.modulos.comun.mixins import EstadoAuditoriaMixin
 
 class Bodega(EstadoAuditoriaMixin, Base):

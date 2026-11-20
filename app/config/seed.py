@@ -1,6 +1,6 @@
-# Datos iniciales para pruebas. Se ejecuta a mano con: python -m app.seed
+# Datos iniciales para pruebas. Se ejecuta a mano con: python -m app.config.seed
 # Es idempotente: si se corre varias veces no duplica nada.
-from app.database import Base, SessionLocal, engine
+from app.config.database import Base, SessionLocal, engine
 from app.modulos.permisos.models import Permiso
 from app.modulos.roles.models import Rol
 from app.modulos.usuarios.models import Usuario

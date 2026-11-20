@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String
-from app.database import Base
+
+from app.config.database import Base
 from app.modulos.comun.mixins import EstadoAuditoriaMixin
 
 class Permiso(EstadoAuditoriaMixin, Base):

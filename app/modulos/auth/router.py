@@ -1,16 +1,16 @@
-# Endpoints de autenticación (login y usuario de la sesión)
-from fastapi import APIRouter, Depends, HTTPException, status
+# Endpoints de autenticación (login y usuario de la sesión).
+# Aquí solo están las rutas y su documentación. La lógica está en services.py, las validaciones
+# en helpers.py, las consultas en queries.py y los errores (mensajes y ejemplos /docs) en errors.py.
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.database import get_db
-from app.modulos.auth import queries
+from app.config.database import get_db
 from app.modulos.usuarios.models import Usuario
 from app.modulos.auth.schemas import LoginRequest, LoginResponse, UserOut
-from app.modulos.roles.schemas import PermisoResumen
-from app.core.security import verify_password
-from app.core.jwt import create_access_token
 from app.core.deps import get_current_user, require_roles
-from app.core.docs import ERROR_401, respuesta_error
+from app.core.docs import ERROR_401
+from app.modulos.auth import services
+from app.modulos.auth.errors import DOC_401_LOGIN, DOC_422_LOGIN
 
 router = APIRouter(tags=["Auth"])
 
@@ -40,42 +40,13 @@ En esta página, pulsa **Authorize** y pega solo el token, sin la palabra "Beare
 """,
     response_description="Token JWT y datos del usuario",
     responses={
-        401: respuesta_error(
-            "El correo no existe o la contraseña es incorrecta",
-            credenciales_invalidas="Correo o contraseña incorrectos",
-        ),
-        422: respuesta_error(
-            "El cuerpo no cumple las validaciones",
-            campos_faltantes="correo: es obligatorio; contrasena: es obligatorio",
-            correo_invalido="correo: formato de correo inválido",
-            json_invalido="El cuerpo de la petición no es un JSON válido",
-        ),
+        401: DOC_401_LOGIN,
+        422: DOC_422_LOGIN,
     },
 )
 def login(datos: LoginRequest, db: Session = Depends(get_db)):
     """Valida correo y contraseña y devuelve un token JWT con los datos del usuario."""
-    usuario = queries.buscar_usuario_por_correo(db, datos.correo)
-
-    # Mismo mensaje si el correo no existe, la contraseña es incorrecta o el usuario
-    # está inactivo, para no revelar cuál de los tres falló
-    if not usuario or not verify_password(datos.contrasena, usuario.contrasena) or not usuario.estado:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Correo o contraseña incorrectos",
-        )
-
-    token = create_access_token(usuario.id, usuario.rol.nombre)
-
-    return LoginResponse(
-        access_token=token,
-        user=UserOut(
-            id=usuario.id,
-            nombre=usuario.nombre,
-            correo=usuario.correo,
-            rol=usuario.rol.nombre,  # el rol va como texto
-            permisos=[PermisoResumen.model_validate(p) for p in usuario.permisos],
-        ),
-    )
+    return services.login(datos, db)
 
 
 @router.get(
@@ -99,17 +70,11 @@ Nunca incluye la contraseña.
 )
 def me(usuario: Usuario = Depends(get_current_user)):
     """Devuelve los datos del usuario dueño del token (sirve para recuperar la sesión)."""
-    return UserOut(
-        id=usuario.id,
-        nombre=usuario.nombre,
-        correo=usuario.correo,
-        rol=usuario.rol.nombre,
-        permisos=[PermisoResumen.model_validate(p) for p in usuario.permisos],
-    )
+    return services.me(usuario)
 
 
 # TEMPORAL: borrar cuando haya CRUDs reales
 @router.get("/solo-admin")
 def solo_admin(usuario: Usuario = Depends(require_roles("admin"))):
     """Endpoint de prueba: solo accesible para el rol admin."""
-    return {"mensaje": "Acceso de administrador"}
+    return services.solo_admin(usuario)

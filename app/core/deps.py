@@ -3,7 +3,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session, joinedload
 
-from app.database import get_db
+from app.config.database import get_db
 from app.modulos.usuarios.models import Usuario
 from app.core.jwt import decode_access_token
 from app.core.permisos import NOMBRES as NOMBRES_PERMISOS

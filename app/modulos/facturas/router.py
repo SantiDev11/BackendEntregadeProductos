@@ -3,20 +3,17 @@
 from fastapi import APIRouter, Depends, Path, Query, Response, status
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.config.database import get_db
 from app.core.deps import get_current_user, require_permiso
-from app.core.docs import ERROR_401, respuesta_error
-from app.core.errors import error_422
-from app.modulos.facturas import helpers, queries
-from app.modulos.facturas.emisor import MONEDA, PREFIJO_FACTURA
-from app.modulos.facturas.helpers import (MSG_BODEGA, MSG_CLIENTE, MSG_ESTADO_INVALIDO, MSG_TIPOS, MSG_TIPOS_BODEGA, ahora,
-                                          cargar_factura, get_factura_or_404, sellar, validar_cliente_de_la_factura,
-                                          validar_estado, validate_bodega, validate_cliente, validate_tipos)
-from app.modulos.facturas.models import ESTADOS_ORDEN, Orden
-from app.modulos.facturas.pdf import generar_pdf
-from app.modulos.facturas.schemas import (ClienteOpcion, ClientePaginado, FacturaCreate, FacturaOut, FacturaPaginado,
-                                          FacturaResumen, FacturaUpdate, FirmaIn, RechazoIn)
+from app.core.docs import ERROR_401
+from app.modulos.facturas.schemas import (ClientePaginado, FacturaCreate, FacturaOut, FacturaPaginado, FacturaUpdate,
+                                          FirmaIn, RechazoIn)
 from app.modulos.usuarios.models import Usuario
+from app.modulos.facturas import services
+from app.modulos.facturas.errors import (DOC_404, DOC_422_ID, DOC_400_ESTADO, DOC_403_GESTION, DOC_403_CLIENTE,
+                                         DOC_422_LISTAR_FACTURAS, DOC_422_LISTAR_CLIENTES_PARA_FACTURAR, DOC_400_CREAR,
+                                         DOC_422_CREAR, DOC_400_ACTUALIZAR, DOC_422_ACTUALIZAR, DOC_422_ACEPTAR,
+                                         DOC_422_RECHAZAR)
 
 # Permiso que exige cada acción (los permisos se leen de la BD en cada petición; el rol admin siempre pasa)
 puede_ver = require_permiso("facturas_view")
@@ -34,17 +31,6 @@ router = APIRouter(
     prefix="/facturas",
     tags=["Facturas"],
     dependencies=[Depends(get_current_user)],
-)
-
-# Errores documentados que se repiten
-ERROR_404 = respuesta_error("No existe la factura o el usuario no puede verla", no_existe="Factura no encontrada")
-ERROR_422_ID = respuesta_error("El id de la ruta no es un número", id_invalido="factura_id: tiene un formato inválido")
-ERROR_400_ESTADO = respuesta_error("La acción no corresponde al estado actual de la factura", estado_invalido=MSG_ESTADO_INVALIDO)
-ERROR_403_GESTION = respuesta_error("Solo `admin` y `bodeguero`", sin_permiso="No tiene permiso para esta acción")
-ERROR_403_CLIENTE = respuesta_error(
-    "Sin el permiso, o no es el cliente de la factura",
-    sin_permiso="No tiene permiso para esta acción",
-    no_es_el_cliente="Solo el cliente de la factura puede aceptarla o rechazarla",
 )
 
 
@@ -74,12 +60,7 @@ Devuelve las facturas en páginas, de la más reciente a la más antigua, con b�
     response_description="Página de facturas con el total que cumple los filtros",
     responses={
         401: ERROR_401,
-        422: respuesta_error(
-            "Algún parámetro de la consulta no es válido",
-            estado_invalido="estado: debe ser emitida, entregada, firmada, rechazada o recibida",
-            limit_maximo="limit: debe ser menor o igual a 100",
-            page_minimo="page: debe ser mayor o igual a 1",
-        ),
+        422: DOC_422_LISTAR_FACTURAS,
     },
 )
 def listar_facturas(
@@ -91,18 +72,7 @@ def listar_facturas(
     usuario: Usuario = Depends(puede_ver),
 ):
     """Lista las facturas. El cliente solo ve las suyas (y no los borradores)."""
-    if estado is not None:
-        estado = estado.strip().lower()
-        if estado not in ESTADOS_ORDEN:
-            raise error_422("estado", "debe ser emitida, entregada, firmada, rechazada o recibida", origen="query")
-
-    # El dueño sale del token: admin todas, cliente las suyas, los demás solo las que crearon
-    total, ordenes = queries.listar(db, alcance=helpers.alcance_facturas(usuario), usuario_id=usuario.id,
-                                    q=q, estado=estado, page=page, limit=limit)
-    return FacturaPaginado(
-        data=[FacturaResumen(**helpers.factura_resumen(o)) for o in ordenes],
-        total=total, page=page, limit=limit,
-    )
+    return services.listar_facturas(q, estado, page, limit, db, usuario)
 
 
 # Va ANTES de "/{factura_id}": si no, FastAPI intentaría leer "clientes" como un id y respondería 422
@@ -127,12 +97,8 @@ El `id` de cada cliente es el que se envía como `cliente_id` en `POST /facturas
     response_description="Página de clientes activos",
     responses={
         401: ERROR_401,
-        403: ERROR_403_GESTION,
-        422: respuesta_error(
-            "Algún parámetro de la consulta no es válido",
-            limit_maximo="limit: debe ser menor o igual a 100",
-            page_minimo="page: debe ser mayor o igual a 1",
-        ),
+        403: DOC_403_GESTION,
+        422: DOC_422_LISTAR_CLIENTES_PARA_FACTURAR,
     },
 )
 def listar_clientes_para_facturar(
@@ -143,11 +109,7 @@ def listar_clientes_para_facturar(
     usuario: Usuario = Depends(puede_crear),
 ):
     """Clientes activos (datos mínimos) para el selector de cliente de la factura."""
-    total, clientes = queries.listar_clientes(db, q=q, page=page, limit=limit)
-    return ClientePaginado(
-        data=[ClienteOpcion.model_validate(c) for c in clientes],
-        total=total, page=page, limit=limit,
-    )
+    return services.listar_clientes_para_facturar(q, page, limit, db, usuario)
 
 
 @router.get(
@@ -166,7 +128,7 @@ validación electrónica (simulada), datos del software y trazabilidad (incluida
 **Devuelve:** la factura, o 404.
 """,
     response_description="La factura completa",
-    responses={401: ERROR_401, 404: ERROR_404, 422: ERROR_422_ID},
+    responses={401: ERROR_401, 404: DOC_404, 422: DOC_422_ID},
 )
 def obtener_factura(
     factura_id: int = Path(description="Id de la factura.", examples=[1]),
@@ -174,7 +136,7 @@ def obtener_factura(
     usuario: Usuario = Depends(puede_ver),
 ):
     """Devuelve una factura por su id (con las reglas de visibilidad del cliente)."""
-    return helpers.factura_salida(get_factura_or_404(db, factura_id, usuario))
+    return services.obtener_factura(factura_id, db, usuario)
 
 
 @router.get(
@@ -194,7 +156,7 @@ Como necesita el header `Authorization`, el frontend debe descargarlo como **blo
     response_class=Response,
     responses={
         200: {"content": {"application/pdf": {}}, "description": "Archivo PDF de la factura"},
-        401: ERROR_401, 404: ERROR_404, 422: ERROR_422_ID,
+        401: ERROR_401, 404: DOC_404, 422: DOC_422_ID,
     },
 )
 def descargar_pdf(
@@ -203,12 +165,11 @@ def descargar_pdf(
     usuario: Usuario = Depends(puede_pdf),
 ):
     """Devuelve el PDF de la factura como archivo adjunto."""
-    orden = get_factura_or_404(db, factura_id, usuario)
-    contenido = generar_pdf(helpers.factura_salida(orden))
+    numero, contenido = services.descargar_pdf(factura_id, db, usuario)
     return Response(
         content=contenido,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{orden.numero}.pdf"'},
+        headers={"Content-Disposition": f'attachment; filename="{numero}.pdf"'},
     )
 
 
@@ -245,21 +206,10 @@ de cada línea y de la factura, CUFE simulado, y la copia de los datos del emiso
 """,
     response_description="La factura creada, con número, totales y CUFE",
     responses={
-        400: respuesta_error("Cliente, bodega o tipos inválidos", cliente=MSG_CLIENTE, bodega=MSG_BODEGA, tipos=MSG_TIPOS,
-                             tipos_otra_bodega=MSG_TIPOS_BODEGA),
+        400: DOC_400_CREAR,
         401: ERROR_401,
-        403: ERROR_403_GESTION,
-        422: respuesta_error(
-            "El cuerpo no cumple las validaciones",
-            faltantes="cliente_id: es obligatorio; bodega_id: es obligatorio; forma_pago: es obligatorio; "
-                      "medio_pago: es obligatorio; detalle: es obligatorio",
-            linea_incompleta="tipo_id: es obligatorio; unidad_medida: es obligatorio",
-            detalle_vacio="detalle: debe tener al menos 1 elemento(s)",
-            cantidad="cantidad: debe ser mayor que 0",
-            iva="iva_porcentaje: debe ser 0, 5 o 19",
-            credito="fecha_vencimiento: es obligatoria cuando la forma de pago es crédito",
-            forma_pago="forma_pago: debe ser contado o credito",
-        ),
+        403: DOC_403_GESTION,
+        422: DOC_422_CREAR,
     },
 )
 def crear_factura(
@@ -268,35 +218,7 @@ def crear_factura(
     usuario: Usuario = Depends(puede_crear),
 ):
     """Crea la factura en estado emitida, con su número, sus líneas, sus totales y su CUFE."""
-    cliente = validate_cliente(db, datos.cliente_id)
-    validate_bodega(db, datos.bodega_id, usuario)
-    validate_tipos(db, datos.detalle, datos.bodega_id)
-
-    consecutivo = queries.siguiente_consecutivo(db)
-    orden = Orden(
-        prefijo=PREFIJO_FACTURA,
-        consecutivo=consecutivo,
-        numero=helpers.formatear_numero(consecutivo),
-        fecha_emision=ahora(),
-        fecha_vencimiento=datos.fecha_vencimiento,
-        moneda=MONEDA,
-        forma_pago=datos.forma_pago,
-        medio_pago=datos.medio_pago or None,
-        bodega_id=datos.bodega_id,
-        cliente_id=cliente.id,
-        bodeguero_id=usuario.id,
-        emisor_datos=helpers.datos_emisor(),
-        adquiriente_datos=helpers.datos_adquiriente(cliente),
-        observaciones=datos.observaciones or None,
-        estado_orden="emitida",
-        detalles=helpers.armar_detalles(datos.detalle),
-        creado_por=usuario.id,
-        actualizado_por=usuario.id,
-    )
-    sellar(orden)
-    db.add(orden)
-    db.commit()
-    return cargar_factura(db, orden.id)
+    return services.crear_factura(datos, db, usuario)
 
 
 # ===== EDITAR (PUT) =====
@@ -325,18 +247,11 @@ Edita una factura que todavía está en **`emitida`**. **Solo cambia los campos 
 """,
     response_description="La factura con los cambios aplicados",
     responses={
-        400: respuesta_error("Estado inválido, o cliente, bodega o tipos inválidos",
-                             estado_invalido=MSG_ESTADO_INVALIDO, cliente=MSG_CLIENTE, bodega=MSG_BODEGA, tipos=MSG_TIPOS,
-                             tipos_otra_bodega=MSG_TIPOS_BODEGA),
+        400: DOC_400_ACTUALIZAR,
         401: ERROR_401,
-        403: ERROR_403_GESTION,
-        404: ERROR_404,
-        422: respuesta_error(
-            "El id o el cuerpo no cumplen las validaciones",
-            id_invalido="factura_id: tiene un formato inválido",
-            credito="fecha_vencimiento: es obligatoria cuando la forma de pago es crédito",
-            cantidad="cantidad: debe ser mayor que 0",
-        ),
+        403: DOC_403_GESTION,
+        404: DOC_404,
+        422: DOC_422_ACTUALIZAR,
     },
 )
 def actualizar_factura(
@@ -346,34 +261,7 @@ def actualizar_factura(
     usuario: Usuario = Depends(puede_editar),
 ):
     """Edita una factura en estado emitida y recalcula totales y CUFE."""
-    orden = get_factura_or_404(db, factura_id, usuario)
-    validar_estado(orden, "emitida")
-    cambios = datos.model_dump(exclude_none=True, exclude={"detalle"})
-
-    if "cliente_id" in cambios:
-        cliente = validate_cliente(db, cambios["cliente_id"])
-        orden.adquiriente_datos = helpers.datos_adquiriente(cliente)
-    if "bodega_id" in cambios:
-        validate_bodega(db, cambios["bodega_id"], usuario)
-    if cambios.get("observaciones") == "":
-        cambios["observaciones"] = None  # "" borra las observaciones
-
-    for campo, valor in cambios.items():
-        setattr(orden, campo, valor)
-
-    if orden.forma_pago == "credito" and orden.fecha_vencimiento is None:
-        raise error_422("fecha_vencimiento", "es obligatoria cuando la forma de pago es crédito")
-
-    if datos.detalle is not None:
-        validate_tipos(db, datos.detalle, orden.bodega_id)
-        orden.detalles = helpers.armar_detalles(datos.detalle)  # reemplaza todas las líneas
-    elif "bodega_id" in cambios:
-        validate_tipos(db, orden.detalles, orden.bodega_id)  # si cambia la bodega, las líneas actuales deben servir
-
-    sellar(orden)
-    orden.actualizado_por = usuario.id
-    db.commit()
-    return cargar_factura(db, factura_id)
+    return services.actualizar_factura(datos, factura_id, db, usuario)
 
 
 # ===== ACCIONES (cambian el estado) =====
@@ -391,20 +279,14 @@ Pasa la factura de **`emitida`** a **`entregada`** y guarda `fecha_entrega`. Des
 (de estas, nunca las `emitida`); cualquier otro usuario (bodeguero), solo las que creó. Si no es suya: **404**.
 """,
     response_description="La factura en estado entregada",
-    responses={400: ERROR_400_ESTADO, 401: ERROR_401, 403: ERROR_403_GESTION, 404: ERROR_404, 422: ERROR_422_ID},
+    responses={400: DOC_400_ESTADO, 401: ERROR_401, 403: DOC_403_GESTION, 404: DOC_404, 422: DOC_422_ID},
 )
 def entregar_factura(
     factura_id: int = Path(description="Id de la factura.", examples=[1]),
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(puede_entregar),
 ):
-    orden = get_factura_or_404(db, factura_id, usuario)
-    validar_estado(orden, "emitida")
-    orden.estado_orden = "entregada"
-    orden.fecha_entrega = ahora()
-    orden.actualizado_por = usuario.id
-    db.commit()
-    return cargar_factura(db, factura_id)
+    return services.entregar_factura(factura_id, db, usuario)
 
 
 @router.post(
@@ -422,14 +304,8 @@ Además, solo el **cliente de la factura** puede hacerlo: cualquier otro usuario
 """,
     response_description="La factura firmada",
     responses={
-        400: ERROR_400_ESTADO, 401: ERROR_401, 403: ERROR_403_CLIENTE, 404: ERROR_404,
-        422: respuesta_error(
-            "La firma no es válida",
-            faltante="firma: es obligatorio",
-            formato="firma: debe ser una imagen PNG en base64 (data:image/png;base64,...)",
-            base64="firma: no es un base64 válido",
-            grande="firma: es demasiado grande (máximo 500 KB)",
-        ),
+        400: DOC_400_ESTADO, 401: ERROR_401, 403: DOC_403_CLIENTE, 404: DOC_404,
+        422: DOC_422_ACEPTAR,
     },
 )
 def aceptar_factura(
@@ -438,15 +314,7 @@ def aceptar_factura(
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(puede_aceptar),
 ):
-    orden = get_factura_or_404(db, factura_id, usuario)
-    validar_cliente_de_la_factura(orden, usuario)
-    validar_estado(orden, "entregada")
-    orden.estado_orden = "firmada"
-    orden.firma = datos.firma
-    orden.fecha_respuesta = ahora()
-    orden.actualizado_por = usuario.id
-    db.commit()
-    return cargar_factura(db, factura_id)
+    return services.aceptar_factura(datos, factura_id, db, usuario)
 
 
 @router.post(
@@ -465,8 +333,8 @@ Además, solo el **cliente de la factura** puede hacerlo: cualquier otro usuario
 """,
     response_description="La factura rechazada",
     responses={
-        400: ERROR_400_ESTADO, 401: ERROR_401, 403: ERROR_403_CLIENTE, 404: ERROR_404,
-        422: respuesta_error("Falta el motivo", faltante="motivo: es obligatorio", vacio="motivo: no puede estar vacío"),
+        400: DOC_400_ESTADO, 401: ERROR_401, 403: DOC_403_CLIENTE, 404: DOC_404,
+        422: DOC_422_RECHAZAR,
     },
 )
 def rechazar_factura(
@@ -475,15 +343,7 @@ def rechazar_factura(
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(puede_rechazar),
 ):
-    orden = get_factura_or_404(db, factura_id, usuario)
-    validar_cliente_de_la_factura(orden, usuario)
-    validar_estado(orden, "entregada")
-    orden.estado_orden = "rechazada"
-    orden.motivo_rechazo = datos.motivo
-    orden.fecha_respuesta = ahora()
-    orden.actualizado_por = usuario.id
-    db.commit()
-    return cargar_factura(db, factura_id)
+    return services.rechazar_factura(datos, factura_id, db, usuario)
 
 
 @router.post(
@@ -499,20 +359,14 @@ El bodeguero recibe la factura firmada: pasa de **`firmada`** a **`recibida`** (
 (de estas, nunca las `emitida`); cualquier otro usuario (bodeguero), solo las que creó. Si no es suya: **404**.
 """,
     response_description="La factura recibida",
-    responses={400: ERROR_400_ESTADO, 401: ERROR_401, 403: ERROR_403_GESTION, 404: ERROR_404, 422: ERROR_422_ID},
+    responses={400: DOC_400_ESTADO, 401: ERROR_401, 403: DOC_403_GESTION, 404: DOC_404, 422: DOC_422_ID},
 )
 def recibir_factura(
     factura_id: int = Path(description="Id de la factura.", examples=[1]),
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(puede_recibir),
 ):
-    orden = get_factura_or_404(db, factura_id, usuario)
-    validar_estado(orden, "firmada")
-    orden.estado_orden = "recibida"
-    orden.fecha_recepcion = ahora()
-    orden.actualizado_por = usuario.id
-    db.commit()
-    return cargar_factura(db, factura_id)
+    return services.recibir_factura(factura_id, db, usuario)
 
 
 # ===== ELIMINAR (DELETE) =====
@@ -532,15 +386,12 @@ Elimina una factura que todavía está en **`emitida`**, junto con sus líneas. 
 **Devuelve:** 204 **sin cuerpo**.
 """,
     response_description="Factura eliminada. La respuesta no tiene cuerpo",
-    responses={400: ERROR_400_ESTADO, 401: ERROR_401, 403: ERROR_403_GESTION, 404: ERROR_404, 422: ERROR_422_ID},
+    responses={400: DOC_400_ESTADO, 401: ERROR_401, 403: DOC_403_GESTION, 404: DOC_404, 422: DOC_422_ID},
 )
 def eliminar_factura(
     factura_id: int = Path(description="Id de la factura a eliminar.", examples=[1]),
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(puede_eliminar),
 ):
-    orden = get_factura_or_404(db, factura_id, usuario)
-    validar_estado(orden, "emitida")
-    db.delete(orden)  # las líneas se borran en cascada
-    db.commit()
+    services.eliminar_factura(factura_id, db, usuario)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

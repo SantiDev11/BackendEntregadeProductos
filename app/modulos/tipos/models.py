@@ -1,6 +1,7 @@
 from sqlalchemy import Column, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import relationship
-from app.database import Base
+
+from app.config.database import Base
 from app.modulos.comun.mixins import EstadoAuditoriaMixin
 
 class Tipo(EstadoAuditoriaMixin, Base):
