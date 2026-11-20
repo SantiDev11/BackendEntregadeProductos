@@ -38,6 +38,8 @@ CATALOGO = [
     ("permisos_create", "Crear permisos"),
     ("permisos_edit", "Editar permisos"),
     ("permisos_delete", "Eliminar permisos"),
+    # Estadísticas (1)
+    ("estadisticas_view", "Ver estadísticas"),
 ]
 
 NOMBRES = {nombre for nombre, _ in CATALOGO}
@@ -46,10 +48,11 @@ NOMBRES = {nombre for nombre, _ in CATALOGO}
 _FACTURAS_GESTION = ["facturas_view", "facturas_create", "facturas_edit", "facturas_delete",
                      "facturas_entregar", "facturas_recibir", "facturas_pdf"]
 PLANTILLAS = {
-    "admin": [n for n, _ in CATALOGO if n not in ("facturas_aceptar", "facturas_rechazar")],  # 27
+    "admin": [n for n, _ in CATALOGO if n not in ("facturas_aceptar", "facturas_rechazar")],  # 28
     "bodeguero": ["tipos_view", "tipos_create", "tipos_edit", "tipos_delete",
-                  "bodegas_view", "bodegas_create", "bodegas_edit", "bodegas_delete"] + _FACTURAS_GESTION,  # 15
-    "cliente": ["facturas_view", "facturas_aceptar", "facturas_rechazar", "facturas_pdf"],  # 4
+                  "bodegas_view", "bodegas_create", "bodegas_edit", "bodegas_delete"] + _FACTURAS_GESTION
+                 + ["estadisticas_view"],  # 16
+    "cliente": ["facturas_view", "facturas_aceptar", "facturas_rechazar", "facturas_pdf", "estadisticas_view"],  # 5
 }
 
 # Nombres viejos que se renombran al sembrar (para no perder asignaciones ya guardadas)

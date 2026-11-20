@@ -12,6 +12,7 @@ from app.modulos.permisos import router as permisos
 from app.modulos.roles import router as roles
 from app.modulos.usuarios import router as usuarios
 from app.modulos.facturas import router as facturas
+from app.modulos.estadisticas import router as estadisticas
 from app.core.errors import validation_exception_handler
 from app.core.docs import configurar_docs
 
@@ -34,6 +35,7 @@ TAGS = [
     {"name": "Roles", "description": "CRUD de roles y su plantilla de permisos. Permisos `roles_*`."},
     {"name": "Usuarios", "description": "CRUD de usuarios y sus permisos (la contraseña nunca se devuelve). Permisos `usuarios_*`."},
     {"name": "Facturas", "description": "Órdenes de entrega (la orden es la factura): borrador, entrega, firma o rechazo del cliente, recepción y PDF."},
+    {"name": "Estadísticas", "description": "Panel de estadísticas según el rol (tarjetas y gráficos). Permiso `estadisticas_view`."},
     {"name": "Inicio", "description": "Comprobar que la API está funcionando."},
 ]
 
@@ -79,6 +81,7 @@ app.include_router(permisos.router)
 app.include_router(roles.router)
 app.include_router(usuarios.router)
 app.include_router(facturas.router)
+app.include_router(estadisticas.router)
 
 # Errores de validación (422) como {"detail": "texto"}
 app.add_exception_handler(RequestValidationError, validation_exception_handler)

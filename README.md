@@ -47,7 +47,7 @@ Hecho con **FastAPI + SQLAlchemy + MySQL**. Lo consume un frontend en Vue.
    | `SECRET_KEY` | una clave larga y secreta para firmar los tokens |
 
 4. **Datos iniciales (seed):**
-   - Crea las tablas, los roles, el catálogo de 29 permisos y los usuarios de prueba.
+   - Crea las tablas, los roles, el catálogo de 30 permisos y los usuarios de prueba.
    - Se puede correr varias veces: lo que ya existe no se duplica.
 
    ```powershell
@@ -91,7 +91,7 @@ app/
 │   ├── errors.py      # formato de los 422 en español y errores base (error_400, error_404...)
 │   └── docs.py        # formato de los errores en /docs y página /docs ordenada
 └── modulos/           # un módulo por recurso
-    ├── auth/  tipos/  bodegas/  permisos/  roles/  usuarios/  facturas/
+    ├── auth/  tipos/  bodegas/  permisos/  roles/  usuarios/  facturas/  estadisticas/
     └── comun/         # mixin de estado y auditoría
 migraciones/           # cambios para bases de datos que ya existían
 ```
@@ -123,6 +123,7 @@ Todos, menos `POST /login`, piden `Authorization: Bearer <token>`.
 | Roles | `GET/POST /roles`, `GET/PUT/DELETE /roles/{id}`, `PUT /roles/{id}/permisos` |
 | Usuarios | `GET/POST /usuarios`, `GET/PUT/DELETE /usuarios/{id}`, `GET/PUT /usuarios/{id}/permisos`, `POST/DELETE /usuarios/{id}/permisos/{permiso_id}` |
 | Facturas | `GET/POST /facturas`, `GET /facturas/clientes`, `GET/PUT/DELETE /facturas/{id}`, `GET /facturas/{id}/pdf`, `POST /facturas/{id}/entregar`, `.../aceptar`, `.../rechazar`, `.../recibir` |
+| Estadísticas | `GET /estadisticas/resumen?desde=AAAA-MM-DD&hasta=AAAA-MM-DD` |
 
 Los listados son paginados: `?page=1&limit=10` (máximo 100) y responden `{"data": [...], "total": n, "page": p, "limit": l}`.
 
@@ -163,6 +164,11 @@ Los listados son paginados: `?page=1&limit=10` (máximo 100) y responden `{"data
   - El CUFE es **simulado** (SHA-384) y la factura trae un QR.
   - Los datos del emisor son ficticios, de ejemplo, y están en `app/modulos/facturas/emisor.py`.
 
+### Estadísticas
+- Un solo endpoint, `GET /estadisticas/resumen`, con el permiso `estadisticas_view`.
+- Devuelve tarjetas (números) y series (gráficos) del periodo pedido; por defecto, el mes actual.
+- Cuenta las facturas con la misma regla de dueño de `GET /facturas`. Cada rol solo recibe lo que puede ver: el cliente no recibe series de bodegas ni de productos.
+
 ### Errores
 - Siempre en español, con la forma `{"detail": "..."}`.
 - Los de validación (422) además traen `errores`, por campo:
@@ -182,4 +188,5 @@ Si la base ya existía de una versión anterior, aplica en orden los archivos de
 Get-Content migraciones\003_tipos_por_bodega.sql | mysql -u root entrega_productos
 # .py: con el entorno virtual activo
 python migraciones\002_permisos_catalogo_y_usuarios.py
+python migraciones\004_permiso_estadisticas.py
 ```
