@@ -121,6 +121,16 @@ Todos, menos `POST /login`, piden `Authorization: Bearer <token>`.
 
 Los listados son paginados: `?page=1&limit=10` (máximo 100) y responden `{"data": [...], "total": n, "page": p, "limit": l}`.
 
+## Flujo típico
+
+1. El bodeguero inicia sesión (`POST /login`) y crea su bodega (`POST /bodegas`).
+2. Crea los tipos de su catálogo (`POST /tipos`).
+3. Crea la factura para un cliente (`POST /facturas`). Queda en `emitida`.
+4. La entrega al cliente (`POST /facturas/{id}/entregar`).
+5. El cliente la acepta con su firma (`POST /facturas/{id}/aceptar`) o la rechaza (`POST /facturas/{id}/rechazar`).
+6. Si la aceptó, el bodeguero la marca como recibida (`POST /facturas/{id}/recibir`).
+7. Cualquiera de los dos puede descargar el PDF (`GET /facturas/{id}/pdf`).
+
 ## Reglas principales
 
 ### Permisos
