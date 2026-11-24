@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Path, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
-from app.core.deps import get_current_user, require_permiso
+from app.core.deps import get_current_user, no_empresa, require_permiso
 from app.core.docs import ERROR_401, ERROR_403
 from app.modulos.usuarios.models import Usuario
 from app.modulos.usuarios.schemas import (UsuarioCreate, UsuarioUpdate, UsuarioOut, UsuarioPaginado, UsuarioPermisosOut,
@@ -107,6 +107,7 @@ def obtener_usuario(
 
 @router.post(
     "",
+    dependencies=[Depends(no_empresa)],  # TEMPORAL: hasta limitarlo a los bodegueros de su empresa
     response_model=UsuarioOut,
     status_code=status.HTTP_201_CREATED,
     summary="Crear un usuario",
@@ -130,6 +131,8 @@ Crea un usuario nuevo con su contraseña y su rol.
 - Si el `rol_id` no existe, responde 400.
 - **Permisos:** el rol funciona como **plantilla**. Al crear el usuario se le copian los permisos que tenga su rol
   en ese momento. Después se cambian con `PUT /usuarios/{id}/permisos`.
+- `numero_documento` y `telefono` solo aceptan **números** (el teléfono, de 7 a 15 dígitos). Con `PA` el documento también acepta letras.
+- `rol_id` debe ser un número: `3`, no `"3"`.
 - El `numero_documento` debe ser único. `tipo_documento` se acepta en minúsculas y se guarda en mayúsculas.
 - Los campos opcionales que no se envían, o que llegan como `""`, quedan en `null`.
 - La contraseña se guarda cifrada con bcrypt y **nunca** se devuelve.
@@ -159,6 +162,7 @@ def crear_usuario(
 
 @router.put(
     "/{usuario_id}",
+    dependencies=[Depends(no_empresa)],  # TEMPORAL: hasta limitarlo a los bodegueros de su empresa
     response_model=UsuarioOut,
     summary="Editar un usuario",
     description="""
@@ -181,6 +185,7 @@ Actualiza un usuario existente. **Solo cambia los campos que se envían.**
 **Reglas:**
 - Un campo que no se envía, o que llega en `null`, no se cambia.
 - Para **borrar** un dato para facturar se envía `""` (cadena vacía): queda en `null`.
+- `numero_documento` y `telefono` solo aceptan **números** (el teléfono, de 7 a 15 dígitos). Con `PA` el documento también acepta letras.
 - El `numero_documento` no puede tenerlo **otro** usuario.
 - **Contraseña:** si no se envía, la actual **no** se toca. Si se envía, se guarda cifrada la nueva.
 - El correo no puede tenerlo **otro** usuario (sin distinguir mayúsculas). Volver a enviar el mismo correo del usuario no es error.
@@ -219,6 +224,7 @@ def actualizar_usuario(
 
 @router.get(
     "/{usuario_id}/permisos",
+    dependencies=[Depends(no_empresa)],  # nunca gestiona permisos
     response_model=UsuarioPermisosOut,
     summary="Ver los permisos de un usuario",
     description="""
@@ -242,6 +248,7 @@ def ver_permisos_usuario(
 
 @router.put(
     "/{usuario_id}/permisos",
+    dependencies=[Depends(no_empresa)],  # nunca gestiona permisos
     response_model=UsuarioOut,
     summary="Asignar permisos a un usuario",
     description="""
@@ -282,6 +289,7 @@ def asignar_permisos_usuario(
 
 @router.post(
     "/{usuario_id}/permisos/{permiso_id}",
+    dependencies=[Depends(no_empresa)],  # nunca gestiona permisos
     response_model=UsuarioOut,
     summary="Agregar un permiso a un usuario",
     description="""
@@ -306,6 +314,7 @@ def agregar_permiso_usuario(
 
 @router.delete(
     "/{usuario_id}/permisos/{permiso_id}",
+    dependencies=[Depends(no_empresa)],  # nunca gestiona permisos
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Quitar un permiso a un usuario",
     description="""
@@ -334,6 +343,7 @@ def quitar_permiso_usuario(
 
 @router.delete(
     "/{usuario_id}",
+    dependencies=[Depends(no_empresa)],  # TEMPORAL: hasta limitarlo a los bodegueros de su empresa
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Eliminar un usuario",
     description="""

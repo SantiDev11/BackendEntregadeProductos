@@ -119,9 +119,10 @@ Crea una bodega nueva.
 - `codigo`: código interno, hasta 30 caracteres.
 - `direccion`: hasta 200 caracteres.
 - `ciudad` y `departamento`: hasta 100 caracteres.
-- `telefono`: hasta 30 caracteres. `correo`: formato de correo válido, hasta 100.
-- Datos de quién recibe: `recibe_nombre` (100), `recibe_documento` (30), `recibe_cargo` (100) y `recibe_telefono` (30).
-- `bodeguero_id` (opcional, **solo admin**): dueño de la bodega.
+- `telefono`: **solo números**, de 7 a 15 dígitos. `correo`: formato de correo válido, hasta 100.
+- Datos de quién recibe: `recibe_nombre` (100), `recibe_documento` (**solo números**, hasta 30), `recibe_cargo` (100)
+  y `recibe_telefono` (**solo números**, de 7 a 15 dígitos).
+- `bodeguero_id` (opcional, **solo admin**): dueño de la bodega. Debe ser un número: `2`, no `"2"`.
 - `estado` (opcional): por defecto `true` (activa).
 
 **Reglas:**
@@ -172,6 +173,7 @@ Actualiza una bodega existente. **Solo cambia los campos que se envían.**
 - `nombre`: nuevo nombre, de 1 a 100 caracteres.
 - `codigo`, `direccion`, `ciudad`, `departamento`, `telefono`, `correo`: datos de la bodega.
 - `recibe_nombre`, `recibe_documento`, `recibe_cargo`, `recibe_telefono`: datos de quién recibe.
+- `telefono`, `recibe_telefono` (7 a 15 dígitos) y `recibe_documento` solo aceptan **números**.
 - `bodeguero_id`: **solo admin**, para asignar o cambiar el dueño. Si lo envía un bodeguero, se ignora.
 - `estado`: `true` para activar, `false` para desactivar.
 

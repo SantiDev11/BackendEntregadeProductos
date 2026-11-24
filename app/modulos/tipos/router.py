@@ -120,7 +120,7 @@ Crea un tipo nuevo en una bodega.
 
 **Cuerpo:**
 - `nombre` (**obligatorio**): de 1 a 100 caracteres. Se quitan los espacios al inicio y al final.
-- `bodega_id`: ver las reglas.
+- `bodega_id`: ver las reglas. Debe ser un número: `1`, no `"1"`.
 - `estado` (opcional): por defecto `true` (activo).
 
 **A qué bodega va:**
@@ -171,7 +171,7 @@ Actualiza un tipo existente. **Solo cambia los campos que se envían.**
 
 **Cuerpo (todos opcionales):**
 - `nombre`: nuevo nombre, de 1 a 100 caracteres.
-- `bodega_id`: **solo admin**, mueve el tipo a otra bodega (debe existir). Si lo envía otro usuario, se ignora.
+- `bodega_id`: **solo admin**, mueve el tipo a otra bodega (debe existir). Si lo envía otro usuario, se ignora. Debe ser un número.
 - `estado`: `true` para activar, `false` para desactivar.
 
 **Reglas:**

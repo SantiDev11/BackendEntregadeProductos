@@ -1,16 +1,23 @@
 # Dependencias compartidas: obtener el usuario actual a partir del token
 from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session, joinedload
 
 from app.config.database import get_db
+from app.modulos.empresas.helpers import validate_empresa_activa
 from app.modulos.usuarios.models import Usuario
 from app.core.jwt import decode_access_token
 from app.core.permisos import NOMBRES as NOMBRES_PERMISOS
 
-# auto_error=False: si falta el header, HTTPBearer no responde 403;
-# lo manejamos nosotros para responder 401
-bearer = HTTPBearer(auto_error=False)
+# Lee el token del header "Authorization: Bearer <token>".
+# tokenUrl es el login que usa el botón Authorize de /docs (correo y contraseña, sin copiar el token a mano).
+# auto_error=False: si falta el header no responde solo; lo manejamos nosotros para responder 401.
+oauth2 = OAuth2PasswordBearer(
+    tokenUrl="/login/docs",
+    auto_error=False,
+    description="En **username** escribe tu **correo** y en **password** tu contraseña. "
+                "Los campos client_id y client_secret se dejan vacíos.",
+)
 
 
 def _no_autorizado(mensaje: str) -> HTTPException:
@@ -23,16 +30,17 @@ def _no_autorizado(mensaje: str) -> HTTPException:
 
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+    token: str | None = Depends(oauth2),
     db: Session = Depends(get_db),
 ) -> Usuario:
-    """Valida el token del header Authorization y devuelve el usuario con su rol."""
+    """Valida el token del header Authorization y devuelve el usuario con su rol.
+    Responde 403 si el usuario pertenece a una empresa que no está activa, aunque el token sea válido."""
     # Sin header Authorization
-    if credentials is None:
+    if token is None:
         raise _no_autorizado("No ha iniciado sesión")
 
     # Token vencido, alterado o mal formado
-    claims = decode_access_token(credentials.credentials)
+    claims = decode_access_token(token)
     if claims is None:
         raise _no_autorizado("Token inválido o vencido")
 
@@ -45,7 +53,7 @@ def get_current_user(
     # Busca el usuario y carga su rol en la misma consulta
     usuario = (
         db.query(Usuario)
-        .options(joinedload(Usuario.rol))
+        .options(joinedload(Usuario.rol), joinedload(Usuario.empresa))
         .filter(Usuario.id == user_id)
         .first()
     )
@@ -54,6 +62,7 @@ def get_current_user(
     if usuario is None or not usuario.estado:
         raise _no_autorizado("Token inválido o vencido")
 
+    validate_empresa_activa(usuario)
     return usuario
 
 
@@ -71,6 +80,24 @@ def require_roles(*roles_permitidos: str):
         return usuario
 
     return verificar
+
+
+def prohibir_roles(*roles_prohibidos: str):
+    """Dependencia que responde 403 a los roles indicados, AUNQUE tengan el permiso asignado.
+    Va en `dependencies=[...]` del router o del endpoint, además de su require_permiso."""
+
+    def verificar(usuario: Usuario = Depends(get_current_user)) -> None:
+        if usuario.rol.nombre in roles_prohibidos:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tiene permiso para esta acción",
+            )
+
+    return verificar
+
+
+# Lo que el rol empresa nunca puede hacer: gestionar permisos y roles, aceptar o rechazar facturas y todo /empresas
+no_empresa = prohibir_roles("empresa")
 
 
 def require_permiso(nombre: str):

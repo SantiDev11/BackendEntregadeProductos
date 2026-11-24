@@ -1,6 +1,7 @@
 # Errores del módulo Usuarios: los mensajes, las funciones que los lanzan y los ejemplos que muestra /docs.
 from app.core.docs import respuesta_error
-from app.core.errors import error_400, error_404
+from app.core.errors import error_400, error_404, error_422
+from app.modulos.comun.validadores import MSG_LETRAS_Y_NUMEROS, MSG_NUMERO, MSG_SOLO_NUMEROS, MSG_TELEFONO_LARGO
 
 # ===== MENSAJES =====
 
@@ -53,6 +54,11 @@ def tiene_facturas():
     return error_400(MSG_TIENE_FACTURAS)
 
 
+def documento_invalido(mensaje: str):
+    """422 del número de documento (mismo formato que los 422 de FastAPI)."""
+    return error_422("numero_documento", mensaje)
+
+
 # ===== EJEMPLOS DE ERROR PARA /docs =====
 
 DOC_404 = respuesta_error("No existe un usuario con ese id", no_existe=MSG_NO_ENCONTRADO)
@@ -86,8 +92,12 @@ DOC_422_CREAR = respuesta_error(
     correo_invalido="correo: formato de correo inválido",
     contrasena_corta="contrasena: es demasiado corto",
     contrasena_larga="contrasena: es demasiado largo",
-    rol_id_invalido="rol_id: tiene un formato inválido",
+    rol_id_invalido=f"rol_id: {MSG_NUMERO}",
     tipo_documento_invalido="tipo_documento: debe ser CC, NIT, CE o PA",
+    documento_con_letras=f"numero_documento: {MSG_SOLO_NUMEROS}",
+    pasaporte_con_simbolos=f"numero_documento: {MSG_LETRAS_Y_NUMEROS}",
+    telefono_con_letras=f"telefono: {MSG_SOLO_NUMEROS}",
+    telefono_largo=f"telefono: {MSG_TELEFONO_LARGO}",
 )
 DOC_400_ACTUALIZAR = respuesta_error(
     "Correo o documento repetido, rol inexistente o intento de desactivarse a sí mismo",
@@ -101,8 +111,12 @@ DOC_422_ACTUALIZAR = respuesta_error(
     id_invalido="usuario_id: tiene un formato inválido",
     correo_invalido="correo: formato de correo inválido",
     contrasena_corta="contrasena: es demasiado corto",
-    rol_id_invalido="rol_id: tiene un formato inválido",
+    rol_id_invalido=f"rol_id: {MSG_NUMERO}",
     tipo_documento_invalido="tipo_documento: debe ser CC, NIT, CE o PA",
+    documento_con_letras=f"numero_documento: {MSG_SOLO_NUMEROS}",
+    pasaporte_con_simbolos=f"numero_documento: {MSG_LETRAS_Y_NUMEROS}",
+    telefono_con_letras=f"telefono: {MSG_SOLO_NUMEROS}",
+    telefono_largo=f"telefono: {MSG_TELEFONO_LARGO}",
     estado_invalido="estado: tiene un formato inválido",
 )
 DOC_400_ASIGNAR = respuesta_error("Algún id no corresponde a un permiso existente", permiso_inexistente=MSG_PERMISOS_NO_EXISTEN)
@@ -111,6 +125,7 @@ DOC_422_ASIGNAR = respuesta_error(
     id_invalido="usuario_id: tiene un formato inválido",
     lista_faltante="permisos_ids: es obligatorio",
     no_es_lista="permisos_ids: tiene un formato inválido",
+    id_como_texto=f"permisos_ids: {MSG_NUMERO}",
 )
 DOC_400_ELIMINAR = respuesta_error(
     "Intento de eliminar el propio usuario",

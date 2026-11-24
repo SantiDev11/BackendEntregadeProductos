@@ -26,4 +26,8 @@ class Bodega(EstadoAuditoriaMixin, Base):
 
     # Dueño de la bodega: el bodeguero que la administra (null = sin asignar, solo la maneja el admin)
     bodeguero_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
+    # Empresa de la bodega (null = bodega anterior a las empresas)
+    empresa_id = Column(Integer, ForeignKey("empresas.id"), nullable=True)
+
     bodeguero = relationship("Usuario")
+    empresa = relationship("Empresa")

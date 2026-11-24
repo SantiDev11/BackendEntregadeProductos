@@ -1,6 +1,7 @@
 # Validaciones del módulo Usuarios. Si algo no se cumple, lanzan el error de errors.py.
 from sqlalchemy.orm import Session
 
+from app.modulos.comun.validadores import error_documento
 from app.modulos.permisos.models import Permiso
 from app.modulos.roles.models import Rol
 from app.modulos.usuarios import errors, queries
@@ -41,6 +42,13 @@ def validate_unique_usuario_documento(db: Session, numero_documento: str, exclui
     """Lanza 400 si ya existe otro usuario con ese número de documento."""
     if queries.existe_documento(db, numero_documento, excluir_id):
         raise errors.documento_duplicado()
+
+
+def validate_documento(tipo_documento: str | None, numero_documento: str | None) -> None:
+    """Lanza 422 si el número no corresponde al tipo (solo números; con PA, letras y números)."""
+    mensaje = error_documento(tipo_documento, numero_documento)
+    if mensaje:
+        raise errors.documento_invalido(mensaje)
 
 
 def vacios_a_none(valores: dict) -> dict:

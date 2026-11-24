@@ -16,4 +16,8 @@ class Tipo(EstadoAuditoriaMixin, Base):
     # Bodega a la que pertenece el tipo (null = sin bodega: tipos antiguos que solo maneja el admin)
     bodega_id = Column(Integer, ForeignKey("bodegas.id"), nullable=True)
 
+    # Empresa del tipo: la de su bodega (null = tipo general o anterior a las empresas)
+    empresa_id = Column(Integer, ForeignKey("empresas.id"), nullable=True)
+
     bodega = relationship("Bodega")
+    empresa = relationship("Empresa")

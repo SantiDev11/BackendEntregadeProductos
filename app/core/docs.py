@@ -73,6 +73,7 @@ def configurar_docs(app: FastAPI) -> None:
         respuesta = get_swagger_ui_html(
             openapi_url=app.openapi_url,
             title=f"{app.title} - Swagger UI",
+            swagger_ui_parameters={"persistAuthorization": True},  # no pierde la sesión al recargar
         )
         # Se agrega operationsSorter justo antes de "presets", dentro de la configuración de Swagger UI
         html = respuesta.body.decode().replace(

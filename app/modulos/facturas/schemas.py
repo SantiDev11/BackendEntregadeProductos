@@ -10,6 +10,8 @@ from pydantic import (AfterValidator, BaseModel, BeforeValidator, ConfigDict, Fi
                       StringConstraints, ValidationInfo, field_validator)
 from pydantic_core import PydanticCustomError
 
+from app.modulos.comun.validadores import Entero, SoloNumero, numero_en_docs
+
 # ===== TIPOS REUTILIZABLES =====
 
 # Dinero: se calcula con Decimal, pero en el JSON sale como número (no como texto)
@@ -65,7 +67,13 @@ def _validar_firma(valor: str) -> str:
 
 FormaPago = Annotated[str, BeforeValidator(_sin_tildes_minuscula), AfterValidator(_validar_forma_pago)]
 MedioPago = Annotated[str, BeforeValidator(_sin_tildes_minuscula), AfterValidator(_validar_medio_pago)]
-IvaPorcentaje = Annotated[Decimal, AfterValidator(_validar_iva)]
+# Números de la línea: solo números en el JSON (10 o 10.5), nunca textos ("10")
+Cantidad = Annotated[Decimal, Field(gt=0, max_digits=12, decimal_places=2), SoloNumero,
+                     numero_en_docs(exclusiveMinimum=0)]
+Precio = Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=2), SoloNumero, numero_en_docs(minimum=0)]
+Porcentaje = Annotated[Decimal, Field(ge=0, le=100, max_digits=5, decimal_places=2), SoloNumero,
+                       numero_en_docs(minimum=0, maximum=100)]
+IvaPorcentaje = Annotated[Decimal, AfterValidator(_validar_iva), SoloNumero, numero_en_docs(enum=[0, 5, 19])]
 Descripcion = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
 UnidadMedida = Annotated[str, StringConstraints(strip_whitespace=True, to_upper=True, min_length=1, max_length=20)]
 Observaciones = Annotated[str, StringConstraints(strip_whitespace=True, max_length=1000)]
@@ -78,20 +86,20 @@ Motivo = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, m
 class DetalleIn(BaseModel):
     """Una línea de la factura. **Todos los campos son obligatorios.**
     Los valores calculados (subtotal, IVA, total) los pone el servidor."""
-    tipo_id: int = Field(description="**Obligatorio.** Id de un tipo existente (`GET /tipos`).", examples=[1])
+    tipo_id: Entero = Field(description="**Obligatorio.** Id de un tipo existente (`GET /tipos`).", examples=[1])
     descripcion: Descripcion = Field(description="**Obligatorio.** Descripción del producto, de 1 a 255 caracteres.",
                                      examples=["Arroz 500 g"])
     unidad_medida: UnidadMedida = Field(description="**Obligatorio.** Unidad (UND, KG, CAJA...), hasta 20 caracteres. "
                                                     "Se guarda en mayúsculas.",
                                         examples=["UND"])
-    cantidad: Decimal = Field(gt=0, max_digits=12, decimal_places=2,
-                              description="**Obligatorio.** Cantidad, mayor que 0, hasta 2 decimales.", examples=[10])
-    precio_unitario: Decimal = Field(ge=0, max_digits=14, decimal_places=2,
-                                     description="**Obligatorio.** Precio de una unidad **sin IVA**, mayor o igual a 0.",
-                                     examples=[3500])
-    descuento_porcentaje: Decimal = Field(ge=0, le=100, max_digits=5, decimal_places=2,
-                                          description="**Obligatorio.** Porcentaje de descuento de 0 a 100 (envía 0 si no hay).",
-                                          examples=[0])
+    cantidad: Cantidad = Field(description="**Obligatorio.** Cantidad, mayor que 0, hasta 2 decimales. Solo número.",
+                               examples=[10])
+    precio_unitario: Precio = Field(description="**Obligatorio.** Precio de una unidad **sin IVA**, mayor o igual a 0. "
+                                                "Solo número.",
+                                    examples=[3500])
+    descuento_porcentaje: Porcentaje = Field(description="**Obligatorio.** Porcentaje de descuento de 0 a 100 "
+                                                         "(envía 0 si no hay). Solo número.",
+                                             examples=[0])
     iva_porcentaje: IvaPorcentaje = Field(description="**Obligatorio.** IVA: 0, 5 o 19.", examples=[19])
 
 
@@ -110,8 +118,8 @@ class FacturaCreate(BaseModel):
         ],
     }]})
 
-    cliente_id: int = Field(description="**Obligatorio.** Id de un usuario **cliente** activo (el adquiriente).", examples=[3])
-    bodega_id: int = Field(description="**Obligatorio.** Id de una bodega activa (desde donde se despacha).", examples=[1])
+    cliente_id: Entero = Field(description="**Obligatorio.** Id de un usuario **cliente** activo (el adquiriente).", examples=[3])
+    bodega_id: Entero = Field(description="**Obligatorio.** Id de una bodega activa (desde donde se despacha).", examples=[1])
     forma_pago: FormaPago = Field(description="**Obligatorio.** `contado` o `credito` (se acepta `crédito`).",
                                   examples=["contado"])
     medio_pago: MedioPago = Field(description="**Obligatorio.** `efectivo`, `transferencia` o `tarjeta`.",
@@ -143,8 +151,8 @@ class FacturaUpdate(BaseModel):
         ],
     }]})
 
-    cliente_id: Optional[int] = Field(default=None, description="Opcional. Nuevo cliente (usuario cliente activo).", examples=[3])
-    bodega_id: Optional[int] = Field(default=None, description="Opcional. Nueva bodega (activa).", examples=[1])
+    cliente_id: Optional[Entero] = Field(default=None, description="Opcional. Nuevo cliente (usuario cliente activo).", examples=[3])
+    bodega_id: Optional[Entero] = Field(default=None, description="Opcional. Nueva bodega (activa).", examples=[1])
     forma_pago: Optional[FormaPago] = Field(default=None, description="Opcional. `contado` o `credito`.", examples=["credito"])
     medio_pago: Optional[MedioPago] = Field(default=None, description="Opcional. `efectivo`, `transferencia` o `tarjeta`. "
                                                                       "Es obligatorio en la factura: no se puede borrar.",

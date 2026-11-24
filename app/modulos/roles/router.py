@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, Path, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
-from app.core.deps import get_current_user, require_permiso
+from app.core.deps import get_current_user, no_empresa, require_permiso
 from app.core.docs import ERROR_401, ERROR_403
 from app.modulos.roles.schemas import RolCreate, RolUpdate, RolPermisosUpdate, RolOut, RolPaginado
 from app.modulos.usuarios.models import Usuario
@@ -17,11 +17,11 @@ puede_crear = require_permiso("roles_create")
 puede_editar = require_permiso("roles_edit")
 puede_eliminar = require_permiso("roles_delete")
 
-# Todos los endpoints exigen sesión; cada uno exige además su permiso (ver arriba)
+# Todos los endpoints exigen sesión; cada uno exige además su permiso (ver arriba). El rol empresa no entra a ninguno.
 router = APIRouter(
     prefix="/roles",
     tags=["Roles"],
-    dependencies=[Depends(get_current_user)],
+    dependencies=[Depends(get_current_user), Depends(no_empresa)],
 )
 
 

@@ -4,8 +4,9 @@ from sqlalchemy.orm import Session
 from app.core.security import hash_password
 from app.modulos.roles.schemas import PermisoResumen
 from app.modulos.usuarios import errors, queries
-from app.modulos.usuarios.helpers import (get_permiso_or_404, get_usuario_or_404, vacios_a_none, validate_rol_exists,
-                                          validate_unique_usuario_documento, validate_unique_usuario_email)
+from app.modulos.usuarios.helpers import (get_permiso_or_404, get_usuario_or_404, vacios_a_none, validate_documento,
+                                          validate_rol_exists, validate_unique_usuario_documento,
+                                          validate_unique_usuario_email)
 from app.modulos.usuarios.models import Usuario
 from app.modulos.usuarios.schemas import (UsuarioCreate, UsuarioUpdate, UsuarioOut, UsuarioPaginado, UsuarioPermisosOut,
                                           UsuarioPermisosUpdate)
@@ -55,6 +56,11 @@ def actualizar_usuario(datos: UsuarioUpdate, usuario_id: int, db: Session, usuar
     editado = get_usuario_or_404(db, usuario_id)
     # null se ignora (exclude_none); "" sí llega y se convierte en None para borrar el campo
     cambios = vacios_a_none(datos.model_dump(exclude_none=True))
+
+    # El documento se valida con el tipo y el número que van a quedar guardados
+    if "tipo_documento" in cambios or "numero_documento" in cambios:
+        validate_documento(cambios.get("tipo_documento", editado.tipo_documento),
+                           cambios.get("numero_documento", editado.numero_documento))
 
     # El admin no puede desactivarse a sí mismo (se quedaría sin acceso)
     if usuario_id == usuario.id and cambios.get("estado") is False:

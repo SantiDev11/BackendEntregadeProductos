@@ -1,6 +1,7 @@
 # Errores del módulo Bodegas: los mensajes, las funciones que los lanzan y los ejemplos que muestra /docs.
 from app.core.docs import respuesta_error
 from app.core.errors import error_400, error_404
+from app.modulos.comun.validadores import MSG_NUMERO, MSG_SOLO_NUMEROS, MSG_TELEFONO_LARGO
 
 # ===== MENSAJES =====
 
@@ -65,6 +66,10 @@ DOC_422_CREAR = respuesta_error(
     nombre_largo="nombre: es demasiado largo",
     codigo_largo="codigo: es demasiado largo",
     correo_invalido="correo: formato de correo inválido",
+    telefono_con_letras=f"telefono: {MSG_SOLO_NUMEROS}",
+    telefono_largo=f"recibe_telefono: {MSG_TELEFONO_LARGO}",
+    documento_con_letras=f"recibe_documento: {MSG_SOLO_NUMEROS}",
+    bodeguero_como_texto=f"bodeguero_id: {MSG_NUMERO}",
     json_invalido="El cuerpo de la petición no es un JSON válido",
 )
 DOC_422_EDITAR = respuesta_error(
@@ -74,5 +79,9 @@ DOC_422_EDITAR = respuesta_error(
     nombre_largo="nombre: es demasiado largo",
     direccion_larga="direccion: es demasiado largo",
     correo_invalido="correo: formato de correo inválido",
+    telefono_con_letras=f"telefono: {MSG_SOLO_NUMEROS}",
+    telefono_largo=f"recibe_telefono: {MSG_TELEFONO_LARGO}",
+    documento_con_letras=f"recibe_documento: {MSG_SOLO_NUMEROS}",
+    bodeguero_como_texto=f"bodeguero_id: {MSG_NUMERO}",
     estado_invalido="estado: tiene un formato inválido",
 )

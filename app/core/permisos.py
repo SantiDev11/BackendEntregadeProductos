@@ -52,6 +52,10 @@ PLANTILLAS = {
     "bodeguero": ["tipos_view", "tipos_create", "tipos_edit", "tipos_delete",
                   "bodegas_view", "bodegas_create", "bodegas_edit", "bodegas_delete"] + _FACTURAS_GESTION
                  + ["estadisticas_view"],  # 16
+    "empresa": ["tipos_view", "tipos_create", "tipos_edit", "tipos_delete",
+                "bodegas_view", "bodegas_create", "bodegas_edit", "bodegas_delete",
+                "usuarios_view", "usuarios_create", "usuarios_edit", "usuarios_delete"] + _FACTURAS_GESTION
+               + ["estadisticas_view"],  # 20
     "cliente": ["facturas_view", "facturas_aceptar", "facturas_rechazar", "facturas_pdf", "estadisticas_view"],  # 5
 }
 

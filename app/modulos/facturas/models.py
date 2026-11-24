@@ -36,6 +36,7 @@ class Orden(EstadoAuditoriaMixin, Base):
     bodega_id = Column(Integer, ForeignKey("bodegas.id"), nullable=False)  # bodega desde donde se despacha
     cliente_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False)  # usuario cliente (adquiriente)
     bodeguero_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False)  # usuario que emite la factura
+    empresa_id = Column(Integer, ForeignKey("empresas.id"), nullable=True)  # empresa que factura (null = anteriores)
 
     # Copias de los datos al momento de emitir (la factura no cambia si después se edita el cliente o las constantes)
     emisor_datos = Column(JSON, nullable=False)  # copia de EMISOR (app/core/emisor.py)
@@ -65,6 +66,7 @@ class Orden(EstadoAuditoriaMixin, Base):
 
     # Relaciones con otros modelos (foreign_keys explícito porque hay dos FK a usuarios)
     bodega = relationship("Bodega")
+    empresa = relationship("Empresa")
     cliente = relationship("Usuario", foreign_keys=[cliente_id])
     bodeguero = relationship("Usuario", foreign_keys=[bodeguero_id])
     detalles = relationship(

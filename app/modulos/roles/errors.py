@@ -1,6 +1,7 @@
 # Errores del módulo Roles: los mensajes, las funciones que los lanzan y los ejemplos que muestra /docs.
 from app.core.docs import respuesta_error
 from app.core.errors import error_400, error_404
+from app.modulos.comun.validadores import MSG_NUMERO
 
 # ===== MENSAJES =====
 
@@ -67,6 +68,7 @@ DOC_422_ASIGNAR = respuesta_error(
     id_invalido="rol_id: tiene un formato inválido",
     lista_faltante="permisos_ids: es obligatorio",
     no_es_lista="permisos_ids: tiene un formato inválido",
+    id_como_texto=f"permisos_ids: {MSG_NUMERO}",
 )
 DOC_400_ELIMINAR = respuesta_error(
     "Hay usuarios que tienen este rol",

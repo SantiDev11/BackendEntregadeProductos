@@ -4,6 +4,8 @@ from typing import Annotated, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+from app.modulos.comun.validadores import Entero
+
 # Nombre: se quitan los espacios al inicio y al final y luego debe tener de 1 a 50 caracteres
 NombreRol = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=50)]
 
@@ -78,7 +80,7 @@ class RolPermisosUpdate(BaseModel):
     """Lista completa de permisos que debe tener el rol (reemplaza la actual)."""
     model_config = ConfigDict(json_schema_extra={"examples": [{"permisos_ids": [1, 2, 3]}]})
 
-    permisos_ids: List[int] = Field(
+    permisos_ids: List[Entero] = Field(
         description="**Obligatorio.** Ids de los permisos que tendrá el rol. **Reemplaza** todos los actuales. "
                     "Una lista vacía `[]` le quita todos. Los ids repetidos se ignoran.",
         examples=[[1, 2, 3]],

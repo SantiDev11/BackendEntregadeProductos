@@ -3,9 +3,10 @@ from datetime import datetime
 from typing import Annotated, List, Optional
 
 from pydantic import (AfterValidator, BaseModel, BeforeValidator, ConfigDict, EmailStr, Field,
-                      StringConstraints, field_validator)
+                      StringConstraints, ValidationInfo, field_validator)
 from pydantic_core import PydanticCustomError
 
+from app.modulos.comun.validadores import Entero, Telefono, error_documento
 from app.modulos.roles.schemas import PermisoResumen  # {id, nombre} de cada permiso
 
 # Nombre: se quitan los espacios al inicio y al final y luego debe tener de 1 a 100 caracteres
@@ -78,8 +79,8 @@ class UsuarioCreate(BaseModel):
         description="**Obligatorio.** Contraseña de 8 a 72 caracteres. Se guarda cifrada (bcrypt) y **nunca** se devuelve.",
         examples=["Cliente123*"],
     )
-    rol_id: int = Field(
-        description="**Obligatorio.** Id de un rol existente (consulta `GET /roles`).",
+    rol_id: Entero = Field(
+        description="**Obligatorio.** Id de un rol existente (consulta `GET /roles`). Debe ser un número, no un texto.",
         examples=[3],
     )
     tipo_documento: Optional[TipoDocumento] = Field(
@@ -89,11 +90,12 @@ class UsuarioCreate(BaseModel):
     )
     numero_documento: Optional[Texto30] = Field(
         default=None,
-        description="Opcional. Número de documento, hasta 30 caracteres. Debe ser único.",
+        description="Opcional. Número de documento, hasta 30 caracteres. Debe ser único. **Solo números**; "
+                    "si el tipo es `PA` (pasaporte) también acepta letras.",
         examples=["1020304050"],
     )
-    telefono: Optional[Texto30] = Field(default=None, description="Opcional. Teléfono, hasta 30 caracteres.",
-                                        examples=["3001234567"])
+    telefono: Optional[Telefono] = Field(default=None, description="Opcional. Teléfono: **solo números**, de 7 a 15 dígitos.",
+                                         examples=["3001234567"])
     direccion: Optional[Texto200] = Field(default=None, description="Opcional. Dirección, hasta 200 caracteres.",
                                           examples=["Calle 10 # 20-30"])
     ciudad: Optional[Texto100] = Field(default=None, description="Opcional. Ciudad, hasta 100 caracteres.",
@@ -103,6 +105,15 @@ class UsuarioCreate(BaseModel):
         description="Opcional. `true` = activo, `false` = inactivo (no puede iniciar sesión). Si no se envía, queda activo.",
         examples=[True],
     )
+
+    @field_validator("numero_documento", mode="after")
+    @classmethod
+    def documento_segun_tipo(cls, valor, info: ValidationInfo):
+        """Solo números (o letras y números si es pasaporte). Si el tipo vino mal, ya hay un error por el tipo."""
+        mensaje = error_documento(info.data["tipo_documento"], valor) if "tipo_documento" in info.data else None
+        if mensaje:
+            raise PydanticCustomError("documento", mensaje)
+        return valor
 
 
 class UsuarioUpdate(BaseModel):
@@ -128,7 +139,7 @@ class UsuarioUpdate(BaseModel):
                     "Si no se envía o llega en `null`, la contraseña actual **no** se toca.",
         examples=["NuevaClave1*"],
     )
-    rol_id: Optional[int] = Field(
+    rol_id: Optional[Entero] = Field(
         default=None,
         description="Opcional. Id de un rol existente. Si no se envía o llega en `null`, no se cambia.",
         examples=[3],
@@ -140,11 +151,13 @@ class UsuarioUpdate(BaseModel):
     )
     numero_documento: Optional[Texto30] = Field(
         default=None,
-        description="Opcional. Número de documento; no puede tenerlo **otro** usuario. " + TEXTO_BORRAR,
+        description="Opcional. Número de documento; no puede tenerlo **otro** usuario. **Solo números**; "
+                    "si el tipo es `PA` (pasaporte) también acepta letras. " + TEXTO_BORRAR,
         examples=["1020304050"],
     )
-    telefono: Optional[Texto30] = Field(default=None, description="Opcional. Teléfono. " + TEXTO_BORRAR,
-                                        examples=["3109876543"])
+    telefono: Optional[Telefono] = Field(default=None,
+                                         description="Opcional. Teléfono: **solo números**, de 7 a 15 dígitos. " + TEXTO_BORRAR,
+                                         examples=["3109876543"])
     direccion: Optional[Texto200] = Field(default=None, description="Opcional. Dirección. " + TEXTO_BORRAR,
                                           examples=["Carrera 5 # 6-7"])
     ciudad: Optional[Texto100] = Field(default=None, description="Opcional. Ciudad. " + TEXTO_BORRAR,
@@ -233,7 +246,7 @@ class UsuarioPermisosUpdate(BaseModel):
     """Lista completa de permisos que debe tener el usuario (reemplaza la actual)."""
     model_config = ConfigDict(json_schema_extra={"examples": [{"permisos_ids": [1, 2]}]})
 
-    permisos_ids: List[int] = Field(
+    permisos_ids: List[Entero] = Field(
         description="**Obligatorio.** Ids de los permisos que tendrá el usuario. **Reemplaza** todos los actuales. "
                     "Una lista vacía `[]` le quita todos. Los ids repetidos se ignoran.",
         examples=[[1, 2]],

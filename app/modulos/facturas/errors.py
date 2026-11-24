@@ -1,6 +1,7 @@
 # Errores del módulo Facturas: los mensajes, las funciones que los lanzan y los ejemplos que muestra /docs.
 from app.core.docs import respuesta_error
 from app.core.errors import error_422, error_400, error_403, error_404
+from app.modulos.comun.validadores import MSG_NUMERO
 
 # ===== MENSAJES =====
 
@@ -84,6 +85,7 @@ DOC_422_CREAR = respuesta_error(
     linea_incompleta="tipo_id: es obligatorio; unidad_medida: es obligatorio",
     detalle_vacio="detalle: debe tener al menos 1 elemento(s)",
     cantidad="cantidad: debe ser mayor que 0",
+    numero_como_texto=f"cantidad: {MSG_NUMERO}; precio_unitario: {MSG_NUMERO}",
     iva="iva_porcentaje: debe ser 0, 5 o 19",
     credito="fecha_vencimiento: es obligatoria cuando la forma de pago es crédito",
     forma_pago="forma_pago: debe ser contado o credito",
@@ -96,6 +98,7 @@ DOC_422_ACTUALIZAR = respuesta_error(
     id_invalido="factura_id: tiene un formato inválido",
     credito="fecha_vencimiento: es obligatoria cuando la forma de pago es crédito",
     cantidad="cantidad: debe ser mayor que 0",
+    numero_como_texto=f"cantidad: {MSG_NUMERO}; precio_unitario: {MSG_NUMERO}",
 )
 DOC_422_ACEPTAR = respuesta_error(
     "La firma no es válida",

@@ -12,6 +12,7 @@ ROLES = [
     ("admin", "Administra usuarios, roles y toda la aplicación"),
     ("bodeguero", "Gestiona bodegas, productos y entregas"),
     ("cliente", "Consulta y recibe sus entregas"),
+    ("empresa", "Gestiona los bodegueros, bodegas, productos y facturas de su empresa"),
 ]
 
 # Usuarios de prueba
@@ -85,6 +86,8 @@ def crear_catalogo(db):
 def aplicar_plantillas(db, roles, permisos):
     """Agrega a la plantilla de cada rol los permisos que le falten (no quita los que ya tenga)."""
     for nombre_rol, nombres in PLANTILLAS.items():
+        if nombre_rol not in roles:
+            continue  # migraciones viejas (002 y 004) sobre una base que aún no tiene ese rol
         rol = roles[nombre_rol]
         faltantes = [permisos[n] for n in nombres if permisos[n] not in rol.permisos]
         rol.permisos.extend(faltantes)

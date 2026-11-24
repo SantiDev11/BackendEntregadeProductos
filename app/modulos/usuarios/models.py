@@ -22,6 +22,8 @@ class Usuario(EstadoAuditoriaMixin, Base):
     correo = Column(String(100), nullable=False, unique=True)
     contrasena = Column(String(255), nullable=False)  # aquí va el hash bcrypt, nunca texto plano
     rol_id = Column(Integer, ForeignKey("roles.id"), nullable=False)
+    # Empresa del usuario (null = admin, clientes y usuarios anteriores a las empresas)
+    empresa_id = Column(Integer, ForeignKey("empresas.id"), nullable=True)
 
     # Datos para facturar (todos opcionales)
     tipo_documento = Column(String(10), nullable=True)  # CC, NIT, CE o PA
@@ -31,4 +33,5 @@ class Usuario(EstadoAuditoriaMixin, Base):
     ciudad = Column(String(100), nullable=True)  # ciudad del usuario
 
     rol = relationship("Rol")
+    empresa = relationship("Empresa")
     permisos = relationship("Permiso", secondary=usuario_permisos, order_by="Permiso.id")  # permisos efectivos

@@ -1,6 +1,7 @@
 # Errores del módulo Tipos: los mensajes, las funciones que los lanzan y los ejemplos que muestra /docs.
 from app.core.docs import respuesta_error
 from app.core.errors import error_400, error_403, error_404
+from app.modulos.comun.validadores import MSG_NUMERO
 
 # ===== MENSAJES =====
 
@@ -72,6 +73,7 @@ DOC_422_CREAR = respuesta_error(
     nombre_faltante="nombre: es obligatorio",
     nombre_vacio="nombre: no puede estar vacío",
     nombre_largo="nombre: es demasiado largo",
+    bodega_como_texto=f"bodega_id: {MSG_NUMERO}",
     json_invalido="El cuerpo de la petición no es un JSON válido",
 )
 DOC_400_ACTUALIZAR = respuesta_error(
@@ -84,6 +86,7 @@ DOC_422_ACTUALIZAR = respuesta_error(
     id_invalido="tipo_id: tiene un formato inválido",
     nombre_vacio="nombre: no puede estar vacío",
     nombre_largo="nombre: es demasiado largo",
+    bodega_como_texto=f"bodega_id: {MSG_NUMERO}",
     estado_invalido="estado: tiene un formato inválido",
 )
 DOC_400_ELIMINAR = respuesta_error("El tipo está usado en facturas", en_uso=MSG_USADO_EN_FACTURAS)

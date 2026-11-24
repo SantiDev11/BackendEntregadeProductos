@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Path, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
-from app.core.deps import get_current_user, require_permiso
+from app.core.deps import get_current_user, no_empresa, require_permiso
 from app.core.docs import ERROR_401
 from app.modulos.facturas.schemas import (ClientePaginado, FacturaCreate, FacturaOut, FacturaPaginado, FacturaUpdate,
                                           FirmaIn, RechazoIn)
@@ -199,6 +199,9 @@ Crea una factura en estado **`emitida`** (borrador). El cliente todavía no la v
 **Errores 422:** además de `detail` (un solo texto), traen `errores` con un mensaje por campo y la ruta completa,
 por ejemplo `{"cliente_id": "es obligatorio", "detalle[0].descripcion": "es obligatorio"}`.
 
+**Solo números:** `cliente_id`, `bodega_id`, `tipo_id`, `cantidad`, `precio_unitario`, `descuento_porcentaje` e
+`iva_porcentaje` se envían como número (`10`), no como texto (`"10"`): un texto da 422 `"debe ser un número"`.
+
 **Lo calcula el servidor (no se envía):** número (`FE-0001`, `FE-0002`...), subtotales, descuentos, IVA y totales
 de cada línea y de la factura, CUFE simulado, y la copia de los datos del emisor y del cliente.
 
@@ -291,6 +294,7 @@ def entregar_factura(
 
 @router.post(
     "/{factura_id}/aceptar",
+    dependencies=[Depends(no_empresa)],  # solo el cliente
     response_model=FacturaOut,
     summary="Aceptar y firmar la factura (cliente)",
     description="""
@@ -319,6 +323,7 @@ def aceptar_factura(
 
 @router.post(
     "/{factura_id}/rechazar",
+    dependencies=[Depends(no_empresa)],  # solo el cliente
     response_model=FacturaOut,
     summary="Rechazar la factura (cliente)",
     description="""

@@ -14,6 +14,8 @@ TRADUCCIONES = {
     "missing": "es obligatorio",
     "string_too_short": "es demasiado corto",
     "string_too_long": "es demasiado largo",
+    "int_from_float": "debe ser un número entero",
+    "finite_number": "debe ser un número",
 }
 
 # Límites numéricos (ge, le, gt, lt): el valor del límite viene en error["ctx"]

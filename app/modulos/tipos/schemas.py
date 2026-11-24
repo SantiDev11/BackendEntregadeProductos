@@ -4,6 +4,8 @@ from typing import Annotated, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
+from app.modulos.comun.validadores import Entero
+
 # Nombre: se quitan los espacios al inicio y al final y luego debe tener de 1 a 100 caracteres
 NombreTipo = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
 
@@ -20,7 +22,7 @@ class TipoCreate(BaseModel):
                     "Debe ser único **dentro de su bodega** (sin distinguir mayúsculas).",
         examples=["Alimentos"],
     )
-    bodega_id: Optional[int] = Field(
+    bodega_id: Optional[Entero] = Field(
         default=None,
         description="Bodega del tipo. **Admin:** la elige (si no la envía, el tipo queda sin bodega). "
                     "**Otros usuarios:** se asigna sola si tienen una bodega; si tienen varias, deben enviar una de las suyas.",
@@ -45,7 +47,7 @@ class TipoUpdate(BaseModel):
                     "Si no se envía o llega en `null`, no se cambia.",
         examples=["Alimentos y Bebidas"],
     )
-    bodega_id: Optional[int] = Field(
+    bodega_id: Optional[Entero] = Field(
         default=None,
         description="Opcional, **solo admin**: mueve el tipo a otra bodega. Si lo envía otro usuario, se ignora.",
         examples=[2],

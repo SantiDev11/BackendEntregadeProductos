@@ -1,5 +1,6 @@
-# Utilidades JWT: crear y leer tokens de acceso
+# Utilidades JWT: crear y leer tokens de acceso y de refresco
 import os
+import secrets
 from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
@@ -13,6 +14,7 @@ if not SECRET_KEY:
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
+REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 
 
 def create_access_token(user_id: int, rol: str) -> str:
@@ -26,9 +28,33 @@ def create_access_token(user_id: int, rol: str) -> str:
     return jwt.encode(claims, SECRET_KEY, algorithm=ALGORITHM)
 
 
+def create_refresh_token(user_id: int) -> str:
+    """Crea un refresh token (JWT) con vencimiento largo y un jti único para rotación."""
+    expira = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    claims = {
+        "sub": str(user_id),
+        "type": "refresh",
+        "jti": secrets.token_hex(16),  # identificador único para permitir rotación
+        "exp": expira,
+    }
+    return jwt.encode(claims, SECRET_KEY, algorithm=ALGORITHM)
+
+
 def decode_access_token(token: str) -> dict | None:
     """Devuelve los claims si el token es válido; None si está vencido, alterado o mal formado."""
     try:
         return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError:
+        return None
+
+
+def decode_refresh_token(token: str) -> dict | None:
+    """Devuelve los claims si el refresh token es válido y es de tipo 'refresh';
+    None si está vencido, alterado, mal formado o no es un refresh token."""
+    try:
+        claims = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        if claims.get("type") != "refresh":
+            return None
+        return claims
     except JWTError:
         return None

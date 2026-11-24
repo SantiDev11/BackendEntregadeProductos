@@ -6,6 +6,8 @@ from pydantic import (AfterValidator, BaseModel, ConfigDict, EmailStr, Field, St
                       ValidationError, field_validator)
 from pydantic_core import PydanticCustomError
 
+from app.modulos.comun.validadores import DocumentoObligatorio, Entero, TelefonoObligatorio
+
 # Todos los datos de la bodega son obligatorios: se quitan los espacios al inicio y al final
 # y luego no pueden quedar vacíos (mínimo 1 carácter) ni pasarse del largo máximo.
 NombreBodega = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
@@ -68,19 +70,21 @@ class BodegaCreate(BaseModel):
     ciudad: Texto100 = Field(description="**Obligatorio.** Ciudad, hasta 100 caracteres.", examples=["Bogotá"])
     departamento: Texto100 = Field(description="**Obligatorio.** Departamento, hasta 100 caracteres.",
                                    examples=["Cundinamarca"])
-    telefono: Texto30 = Field(description="**Obligatorio.** Teléfono de la bodega, hasta 30 caracteres.",
-                              examples=["6015551234"])
+    telefono: TelefonoObligatorio = Field(description="**Obligatorio.** Teléfono de la bodega: **solo números**, de 7 a 15 dígitos.",
+                                          examples=["6015551234"])
     correo: CorreoBodega = Field(description="**Obligatorio.** Correo de la bodega, con formato válido (hasta 100 caracteres).",
                                  examples=["central@entrega.com"])
     recibe_nombre: Texto100 = Field(description="**Obligatorio.** Nombre de la persona que recibe la mercancía, hasta 100 caracteres.",
                                     examples=["Ana Ruiz"])
-    recibe_documento: Texto30 = Field(description="**Obligatorio.** Documento de quien recibe, hasta 30 caracteres.",
-                                      examples=["52123456"])
+    recibe_documento: DocumentoObligatorio = Field(description="**Obligatorio.** Documento de quien recibe: **solo números**, "
+                                                               "hasta 30 dígitos.",
+                                                   examples=["52123456"])
     recibe_cargo: Texto100 = Field(description="**Obligatorio.** Cargo de quien recibe, hasta 100 caracteres.",
                                    examples=["Jefe de bodega"])
-    recibe_telefono: Texto30 = Field(description="**Obligatorio.** Teléfono de quien recibe, hasta 30 caracteres.",
-                                     examples=["3001234567"])
-    bodeguero_id: Optional[int] = Field(
+    recibe_telefono: TelefonoObligatorio = Field(description="**Obligatorio.** Teléfono de quien recibe: **solo números**, "
+                                                             "de 7 a 15 dígitos.",
+                                                 examples=["3001234567"])
+    bodeguero_id: Optional[Entero] = Field(
         default=None,
         description="Opcional, **solo para admin**. Id del bodeguero dueño de la bodega. "
                     "Si la crea un bodeguero, el dueño es él mismo y este campo se ignora.",
@@ -109,18 +113,24 @@ class BodegaUpdate(BaseModel):
                                                  examples=["Carrera 7 # 10-20"])
     ciudad: Optional[Texto100] = Field(default=None, description="Ciudad. " + NO_VACIO, examples=["Medellín"])
     departamento: Optional[Texto100] = Field(default=None, description="Departamento. " + NO_VACIO, examples=["Antioquia"])
-    telefono: Optional[Texto30] = Field(default=None, description="Teléfono de la bodega. " + NO_VACIO, examples=["6045551234"])
+    telefono: Optional[TelefonoObligatorio] = Field(default=None,
+                                                    description="Teléfono de la bodega: **solo números**, de 7 a 15 dígitos. "
+                                                                + NO_VACIO,
+                                                    examples=["6045551234"])
     correo: Optional[CorreoBodega] = Field(default=None, description="Correo de la bodega, con formato válido. " + NO_VACIO,
                                            examples=["norte@entrega.com"])
     recibe_nombre: Optional[Texto100] = Field(default=None, description="Nombre de quien recibe. " + NO_VACIO,
                                               examples=["Ana Ruiz"])
-    recibe_documento: Optional[Texto30] = Field(default=None, description="Documento de quien recibe. " + NO_VACIO,
-                                                examples=["52123456"])
+    recibe_documento: Optional[DocumentoObligatorio] = Field(default=None,
+                                                             description="Documento de quien recibe: **solo números**. " + NO_VACIO,
+                                                             examples=["52123456"])
     recibe_cargo: Optional[Texto100] = Field(default=None, description="Cargo de quien recibe. " + NO_VACIO,
                                              examples=["Jefe de bodega"])
-    recibe_telefono: Optional[Texto30] = Field(default=None, description="Teléfono de quien recibe. " + NO_VACIO,
-                                               examples=["3001234567"])
-    bodeguero_id: Optional[int] = Field(
+    recibe_telefono: Optional[TelefonoObligatorio] = Field(default=None,
+                                                           description="Teléfono de quien recibe: **solo números**, "
+                                                                       "de 7 a 15 dígitos. " + NO_VACIO,
+                                                           examples=["3001234567"])
+    bodeguero_id: Optional[Entero] = Field(
         default=None,
         description="Opcional, **solo para admin**. Nuevo bodeguero dueño. Si lo envía un bodeguero, se ignora "
                     "(no puede pasarle su bodega a otro).",

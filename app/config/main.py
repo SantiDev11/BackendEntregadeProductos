@@ -6,6 +6,8 @@ from fastapi.exceptions import RequestValidationError
 from app.config.database import Base, engine
 import app.modulos  # registra todos los modelos para que create_all los vea
 from app.modulos.auth import router as auth
+from app.modulos.registro import router as registro
+from app.modulos.empresas import router as empresas
 from app.modulos.tipos import router as tipos
 from app.modulos.bodegas import router as bodegas
 from app.modulos.permisos import router as permisos
@@ -29,6 +31,7 @@ TAGS = [
     {"name": "Auth", "description": "Inicio de sesión (token JWT) y datos del usuario de la sesión, con sus permisos. "
                                     "**Acceso por permisos:** cada endpoint exige un permiso (`modulo_accion`) que se lee "
                                     "de la BD en cada petición; el rol `admin` siempre tiene acceso."},
+    {"name": "Empresas", "description": "Aprobar, rechazar y suspender empresas. Solo el rol `admin`."},
     {"name": "Tipos", "description": "CRUD de tipos de producto. Permisos `tipos_view/create/edit/delete`."},
     {"name": "Bodegas", "description": "CRUD de bodegas (puntos de despacho). Permisos `bodegas_*`. El admin ve todas; los demás solo las suyas."},
     {"name": "Permisos", "description": "Catálogo de permisos. Permisos `permisos_*`."},
@@ -56,8 +59,10 @@ API para gestionar la **entrega de productos desde bodegas a clientes**, con **f
 - **Cliente:** ve sus facturas, las acepta con su firma o las rechaza.
 
 **Seguridad:**
-- Inicia sesión con `POST /login`, copia el `access_token` y pégalo en el botón **Authorize**.
+- Para probar aquí: pulsa **Authorize**, escribe tu **correo** en *username* y tu **contraseña** en *password*
+  y pulsa **Authorize**. La sesión queda guardada aunque recargues la página (dura 60 minutos).
 - Cada endpoint exige un permiso que se revisa por usuario.
+- El token de acceso se puede renovar con `POST /refresh` usando el `refresh_token` que devuelve el login.
 """
 
 # docs_url=None: el /docs por defecto se reemplaza por uno con los endpoints ordenados
@@ -65,16 +70,22 @@ app = FastAPI(title="Entrega de Productos", description=DESCRIPCION, version="1.
               lifespan=lifespan, docs_url=None, openapi_tags=TAGS)
 configurar_docs(app)
 
-# CORS: permite que el frontend (Vue) llame a la API
+# CORS: permite que el frontend (Vue) y la app móvil (Capacitor) llamen a la API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=[
+        "http://localhost:5173",       # Vite dev server (front web)
+        "http://localhost",            # Android WebView (build producción)
+        "capacitor://localhost",       # iOS WebView (build producción)
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 app.include_router(auth.router)
+app.include_router(registro.router)
+app.include_router(empresas.router)
 app.include_router(tipos.router)
 app.include_router(bodegas.router)
 app.include_router(permisos.router)
