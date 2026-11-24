@@ -2,8 +2,9 @@
 
 API REST para la **entrega de productos con factura electrónica simulada**.
 
-Hay tres roles:
-- El **admin** gestiona todo.
+Hay cuatro roles:
+- El **admin** gestiona todo y aprueba las empresas.
+- La **empresa** se registra y, cuando el admin la aprueba, gestiona lo suyo (los filtros por empresa están en desarrollo).
 - El **bodeguero** maneja sus bodegas, su catálogo de tipos y emite facturas.
 - El **cliente** recibe las facturas y las acepta con su firma o las rechaza.
 
@@ -16,7 +17,7 @@ Hecho con **FastAPI + SQLAlchemy + MySQL**. Lo consume un frontend en Vue.
 | API | FastAPI + Uvicorn |
 | Base de datos | MySQL 8 (Laragon) con SQLAlchemy 2 y PyMySQL |
 | Validación | Pydantic v2 |
-| Autenticación | JWT (python-jose, HS256, 60 min) y contraseñas con bcrypt (passlib) |
+| Autenticación | JWT (python-jose, HS256): acceso de 60 min y refresh de 7 días. Contraseñas con bcrypt (passlib) |
 | PDF de la factura | fpdf2 + Pillow |
 
 ## Instalación (Windows / PowerShell)
@@ -45,6 +46,7 @@ Hecho con **FastAPI + SQLAlchemy + MySQL**. Lo consume un frontend en Vue.
    |---|---|
    | `DATABASE_URL` | `mysql+pymysql://root:@localhost:3306/entrega_productos` |
    | `SECRET_KEY` | una clave larga y secreta para firmar los tokens |
+   | `REFRESH_TOKEN_EXPIRE_DAYS` | `7` (opcional: días que dura el refresh token) |
 
 4. **Datos iniciales (seed):**
    - Crea las tablas, los roles, el catálogo de 30 permisos y los usuarios de prueba.
@@ -92,8 +94,10 @@ app/
 │   └── docs.py        # formato de los errores en /docs y página /docs ordenada
 └── modulos/           # un módulo por recurso
     ├── auth/  tipos/  bodegas/  permisos/  roles/  usuarios/  facturas/  estadisticas/
-    └── comun/         # mixin de estado y auditoría
+    ├── empresas/  registro/
+    └── comun/         # mixin de estado y auditoría, y validadores de solo números
 migraciones/           # cambios para bases de datos que ya existían
+tests/                 # pruebas automáticas (pytest)
 ```
 
 Cada módulo tiene estos archivos:
@@ -112,11 +116,12 @@ Flujo de una petición: `router` → `services` → `helpers` (valida, y si algo
 
 ## Endpoints
 
-Todos, menos `POST /login`, piden `Authorization: Bearer <token>`.
+Todos, menos `POST /login`, `POST /refresh` y `POST /register`, piden `Authorization: Bearer <token>`.
 
 | Módulo | Rutas |
 |---|---|
-| Auth | `POST /login`, `GET /me` |
+| Auth | `POST /login`, `POST /refresh`, `POST /register`, `GET /me` |
+| Empresas (solo admin) | `GET /empresas?q=&estado=&page=&limit=`, `PATCH /empresas/{id}/estado` |
 | Tipos | `GET/POST /tipos`, `GET/PUT/DELETE /tipos/{id}` |
 | Bodegas | `GET/POST /bodegas`, `GET/PUT/DELETE /bodegas/{id}` |
 | Permisos | `GET/POST /permisos`, `GET/PUT/DELETE /permisos/{id}` |
@@ -143,6 +148,17 @@ Los listados son paginados: `?page=1&limit=10` (máximo 100) y responden `{"data
 - Se comprueban **por usuario**, en la tabla `usuario_permisos`.
 - Al crear un usuario se le copian los permisos de la plantilla de su rol. Después el admin puede agregarle o quitarle permisos.
 - El rol `admin` siempre pasa.
+
+### Empresas y registro
+- `POST /register` es público. Con `tipo: "cliente"` la cuenta queda activa; con `tipo: "empresa"` crea la empresa `pendiente` y su usuario.
+- **Estados:** `pendiente` → `activa` o `rechazada` (con motivo). Una `activa` puede pasar a `suspendida`, y una `suspendida` o `rechazada` a `activa`.
+- Mientras la empresa no esté `activa`, sus usuarios reciben **403** en el login, en `/refresh` y con cualquier token.
+- `POST /login` y `GET /me` traen `empresa` (`{id, razon_social, estado}`) o `null`.
+- El rol `empresa` nunca gestiona permisos ni roles, ni acepta o rechaza facturas, aunque le asignen el permiso.
+
+### Campos numéricos
+- Los ids, cantidades, precios y porcentajes se envían como número (`10`, no `"10"`).
+- Los teléfonos (7 a 15 dígitos) y documentos van como texto, pero solo con dígitos. El pasaporte (`PA`) acepta también letras.
 
 ### Bodegas
 - El admin ve todas. Los demás usuarios solo ven las suyas.
@@ -177,16 +193,28 @@ Los listados son paginados: `?page=1&limit=10` (máximo 100) y responden `{"data
   {"detail": "nombre: es obligatorio", "errores": {"nombre": "es obligatorio"}}
   ```
 
+## Pruebas
+
+Usan una base aparte, `entrega_productos_test`, que se crea sola y queda vacía al terminar. Nunca tocan la base real.
+
+```powershell
+pip install -r requirements-dev.txt
+python -m pytest
+```
+
 ## Migraciones
 
 Una base de datos **nueva** no las necesita: la app crea las tablas con el esquema actual.
 
-Si la base ya existía de una versión anterior, aplica en orden los archivos de `migraciones/`:
+Si la base ya existía de una versión anterior, aplica **en orden** los archivos de `migraciones/` que te falten, antes de arrancar la app:
 
 ```powershell
-# .sql: con el cliente de MySQL de Laragon
-Get-Content migraciones\003_tipos_por_bodega.sql | mysql -u root entrega_productos
-# .py: con el entorno virtual activo
+# .sql: con el cliente de MySQL de Laragon. .py: con el entorno virtual activo
+Get-Content migraciones\001_usuario_permisos.sql | mysql -u root entrega_productos
 python migraciones\002_permisos_catalogo_y_usuarios.py
+Get-Content migraciones\003_tipos_por_bodega.sql | mysql -u root entrega_productos
 python migraciones\004_permiso_estadisticas.py
+Get-Content migraciones\005_empresas.sql | mysql -u root entrega_productos
+python migraciones\006_backfill_empresas.py            # opcional: solo muestra qué haría; con --aplicar lo guarda
+python migraciones\007_rol_empresa.py
 ```
