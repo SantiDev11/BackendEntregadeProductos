@@ -94,8 +94,8 @@ app/
 │   └── docs.py        # formato de los errores en /docs y página /docs ordenada
 └── modulos/           # un módulo por recurso
     ├── auth/  tipos/  bodegas/  permisos/  roles/  usuarios/  facturas/  estadisticas/
-    ├── empresas/  registro/
-    └── comun/         # mixin de estado y auditoría, y validadores de solo números
+    ├── empresas/  registro/  clientes/
+    └── comun/         # mixin de estado y auditoría
 migraciones/           # cambios para bases de datos que ya existían
 tests/                 # pruebas automáticas (pytest)
 ```
@@ -109,7 +109,7 @@ Cada módulo tiene estos archivos:
 | `helpers.py` | Validaciones y reglas (comprueban y lanzan el error que corresponde) |
 | `errors.py` | Los mensajes de error, una función por error (`raise errors.bodega_no_encontrada()`) y los ejemplos de error de /docs |
 | `queries.py` | Consultas a la base de datos |
-| `schemas.py` | Entrada y salida (Pydantic) |
+| `schemas.py` | Entrada y salida (Pydantic), con los validadores que necesita el módulo |
 | `models.py` | Tablas |
 
 Flujo de una petición: `router` → `services` → `helpers` (valida, y si algo falla lanza un error de `errors`) → `queries` (BD).
@@ -121,14 +121,17 @@ Todos, menos `POST /login`, `POST /refresh` y `POST /register`, piden `Authoriza
 | Módulo | Rutas |
 |---|---|
 | Auth | `POST /login`, `POST /refresh`, `POST /register`, `GET /me` |
-| Empresas (solo admin) | `GET /empresas?q=&estado=&page=&limit=`, `PATCH /empresas/{id}/estado` |
-| Tipos | `GET/POST /tipos`, `GET/PUT/DELETE /tipos/{id}` |
-| Bodegas | `GET/POST /bodegas`, `GET/PUT/DELETE /bodegas/{id}` |
+| Empresas (solo admin) | `GET /empresas?q=&estado=&page=&limit=`, `POST /empresas`, `GET/PUT/DELETE /empresas/{id}`, `PATCH /empresas/{id}/estado` |
+| Tipos | `GET/POST /tipos`, `GET/PUT/DELETE /tipos/{id}`, `PATCH /tipos/{id}/estado` |
+| Bodegas | `GET/POST /bodegas`, `GET/PUT/DELETE /bodegas/{id}`, `PATCH /bodegas/{id}/estado` |
 | Permisos | `GET/POST /permisos`, `GET/PUT/DELETE /permisos/{id}` |
-| Roles | `GET/POST /roles`, `GET/PUT/DELETE /roles/{id}`, `PUT /roles/{id}/permisos` |
-| Usuarios | `GET/POST /usuarios`, `GET/PUT/DELETE /usuarios/{id}`, `GET/PUT /usuarios/{id}/permisos`, `POST/DELETE /usuarios/{id}/permisos/{permiso_id}` |
-| Facturas | `GET/POST /facturas`, `GET /facturas/clientes`, `GET/PUT/DELETE /facturas/{id}`, `GET /facturas/{id}/pdf`, `POST /facturas/{id}/entregar`, `.../aceptar`, `.../rechazar`, `.../recibir` |
-| Estadísticas | `GET /estadisticas/resumen?desde=AAAA-MM-DD&hasta=AAAA-MM-DD` |
+| Roles | `GET/POST /roles`, `GET/PUT/DELETE /roles/{id}`, `PUT /roles/{id}/permisos`, `PATCH /roles/{id}/estado` |
+| Usuarios | `GET/POST /usuarios`, `GET/PUT/DELETE /usuarios/{id}`, `PATCH /usuarios/{id}/estado`, `GET/PUT /usuarios/{id}/permisos`, `POST/DELETE /usuarios/{id}/permisos/{permiso_id}` |
+| Clientes | `GET /clientes/buscar?q=&page=&limit=` (`q` de mínimo 3 caracteres) |
+| Facturas | `GET/POST /facturas`, `GET /facturas/clientes` (en desuso: usar `/clientes/buscar`), `GET/PUT/DELETE /facturas/{id}`, `GET /facturas/{id}/pdf`, `POST /facturas/{id}/entregar`, `.../aceptar`, `.../rechazar`, `.../recibir` |
+| Estadísticas | `GET /estadisticas/resumen?fecha_inicio=AAAA-MM-DD&fecha_fin=AAAA-MM-DD` y los filtros de cada rol |
+
+`PATCH /{id}/estado` recibe `{"estado": true}` o `{"estado": false}` y exige el permiso `*_edit` del módulo. El `PUT` también acepta `estado`.
 
 Los listados son paginados: `?page=1&limit=10` (máximo 100) y responden `{"data": [...], "total": n, "page": p, "limit": l}`.
 
@@ -151,14 +154,17 @@ Los listados son paginados: `?page=1&limit=10` (máximo 100) y responden `{"data
 
 ### Empresas y registro
 - `POST /register` es público. Con `tipo: "cliente"` la cuenta queda activa; con `tipo: "empresa"` crea la empresa `pendiente` y su usuario.
+- El admin también puede crear una empresa ya `activa`, con su usuario (`POST /empresas`), editarla, y eliminarla solo si no tiene datos.
 - **Estados:** `pendiente` → `activa` o `rechazada` (con motivo). Una `activa` puede pasar a `suspendida`, y una `suspendida` o `rechazada` a `activa`.
 - Mientras la empresa no esté `activa`, sus usuarios reciben **403** en el login, en `/refresh` y con cualquier token.
 - `POST /login` y `GET /me` traen `empresa` (`{id, razon_social, estado}`) o `null`.
+- Al crear bodegueros, usuarios empresa o bodegas, el admin debe enviar `empresa_id` (número; **422** si falta o no existe, **400** si la empresa no está `activa`). Lo que crea una empresa queda en la empresa del token: el `empresa_id` del cuerpo se ignora.
 - El rol `empresa` nunca gestiona permisos ni roles, ni acepta o rechaza facturas, aunque le asignen el permiso.
 
 ### Campos numéricos
 - Los ids, cantidades, precios y porcentajes se envían como número (`10`, no `"10"`).
-- Los teléfonos (7 a 15 dígitos) y documentos van como texto, pero solo con dígitos. El pasaporte (`PA`) acepta también letras.
+- Los teléfonos van como texto, pero solo con dígitos (7 a 15).
+- Los documentos van como texto, con **letras y números** (hasta 30), porque los extranjeros pueden llevar letras. Sin espacios ni símbolos.
 
 ### Bodegas
 - El admin ve todas. Los demás usuarios solo ven las suyas.
@@ -175,15 +181,21 @@ Los listados son paginados: `?page=1&limit=10` (máximo 100) y responden `{"data
   - Si la factura no es del usuario, la respuesta es **404**.
 - **Estados:** `emitida` → `entregada` → `firmada` (el cliente la acepta y firma) → `recibida`. El cliente también puede pasarla a `rechazada`.
 - **Datos de la factura:**
-  - La numeración es `FE-0001`, `FE-0002`, …
+  - La numeración es `FE-0001`, `FE-0002`, … **por empresa**: dos empresas pueden tener `FE-0001`. La clave es `id`, nunca `numero`.
+    Un número ya usado no se repite dentro de su empresa, aunque la factura se elimine o se creen varias a la vez.
+  - El listado y el detalle traen `empresa_id` y `empresa_nombre` (`null` si la factura no tiene empresa).
+  - Para rechazarla, `motivo_rechazo` es obligatorio, de 10 a 255 caracteres.
   - Los totales y el IVA los calcula el servidor.
   - El CUFE es **simulado** (SHA-384) y la factura trae un QR.
-  - Los datos del emisor son ficticios, de ejemplo, y están en `app/modulos/facturas/emisor.py`.
+  - El emisor (JSON y PDF) es la empresa de la factura: razón social, NIT, dirección, teléfono y correo. Se copia al emitirla,
+    así que si la empresa cambia sus datos, la factura conserva los de ese momento.
+  - Las facturas sin empresa salen con el emisor por defecto, ficticio, de `app/modulos/facturas/emisor.py`.
 
 ### Estadísticas
 - Un solo endpoint, `GET /estadisticas/resumen`, con el permiso `estadisticas_view`.
-- Devuelve tarjetas (números) y series (gráficos) del periodo pedido; por defecto, el mes actual.
-- Cuenta las facturas con la misma regla de dueño de `GET /facturas`. Cada rol solo recibe lo que puede ver: el cliente no recibe series de bodegas ni de productos.
+- Un panel por rol, todos con la misma forma: `kpis`, `desglose_principal`, `serie_temporal`, `alertas_detalle` y `filtros_disponibles`. Por defecto, el mes actual.
+- Cuenta las facturas con la misma regla de dueño de `GET /facturas`. Los filtros que no son del rol se ignoran: el alcance sale del token.
+- `desde`, `hasta`, `tarjetas` y `series` están en desuso, pero siguen funcionando hasta que el frontend confirme.
 
 ### Errores
 - Siempre en español, con la forma `{"detail": "..."}`.
@@ -217,4 +229,6 @@ python migraciones\004_permiso_estadisticas.py
 Get-Content migraciones\005_empresas.sql | mysql -u root entrega_productos
 python migraciones\006_backfill_empresas.py            # opcional: solo muestra qué haría; con --aplicar lo guarda
 python migraciones\007_rol_empresa.py
+Get-Content migraciones\008_numeracion_por_empresa.sql | mysql -u root entrega_productos
+python migraciones\009_emisor_por_empresa.py           # opcional: solo muestra qué haría; con --aplicar lo guarda
 ```

@@ -1,20 +1,21 @@
 # Lógica de cada endpoint de Tipos. El router solo recibe la petición y llama a estas funciones.
 from sqlalchemy.orm import Session
 
+from app.core.alcance import Alcance
 from app.modulos.tipos import queries
 from app.modulos.tipos.helpers import (bodega_para_nuevo_tipo, bodegas_permitidas, es_admin, get_tipo_or_404,
                                        validate_bodega_existe, validate_se_puede_eliminar,
                                        validate_unique_tipo_name)
 from app.modulos.tipos.models import Tipo
-from app.modulos.tipos.schemas import TipoCreate, TipoUpdate, TipoOut, TipoPaginado
+from app.modulos.tipos.schemas import TipoCreate, TipoEstadoUpdate, TipoUpdate, TipoOut, TipoPaginado
 from app.modulos.usuarios.models import Usuario
 
 
 def listar_tipos(q: str | None, estado: bool | None, bodega_id: int | None, page: int, limit: int, db: Session,
-                 usuario: Usuario):
+                 alcance: Alcance):
     """Lista los tipos con búsqueda, filtros y paginación. Quien no es admin solo ve los de sus bodegas."""
-    total, tipos = queries.listar(db, q=q, estado=estado, bodega_id=bodega_id,
-                                  bodegas_permitidas=bodegas_permitidas(db, usuario), page=page, limit=limit)
+    total, tipos = queries.listar(db, alcance, q=q, estado=estado, bodega_id=bodega_id,
+                                  bodegas_permitidas=bodegas_permitidas(db, alcance.usuario), page=page, limit=limit)
 
     return TipoPaginado(
         data=[TipoOut.model_validate(t) for t in tipos],
@@ -36,6 +37,7 @@ def crear_tipo(datos: TipoCreate, db: Session, usuario: Usuario):
 
     valores = datos.model_dump()
     valores["bodega_id"] = bodega_id
+    valores["empresa_id"] = validate_bodega_existe(db, bodega_id).empresa_id if bodega_id is not None else None
     tipo = Tipo(**valores, creado_por=usuario.id, actualizado_por=usuario.id)
     db.add(tipo)
     db.commit()
@@ -53,7 +55,8 @@ def actualizar_tipo(datos: TipoUpdate, tipo_id: int, db: Session, usuario: Usuar
     if not es_admin(usuario):
         cambios.pop("bodega_id", None)
     elif "bodega_id" in cambios:
-        validate_bodega_existe(db, cambios["bodega_id"])
+        # el tipo siempre es de la empresa de su bodega
+        cambios["empresa_id"] = validate_bodega_existe(db, cambios["bodega_id"]).empresa_id
 
     # El nombre se valida contra la bodega en la que va a quedar el tipo
     if "nombre" in cambios or "bodega_id" in cambios:
@@ -67,6 +70,11 @@ def actualizar_tipo(datos: TipoUpdate, tipo_id: int, db: Session, usuario: Usuar
     db.commit()
     db.refresh(tipo)
     return tipo
+
+
+def cambiar_estado_tipo(datos: TipoEstadoUpdate, tipo_id: int, db: Session, usuario: Usuario):
+    """Activa o desactiva el tipo (por ejemplo, sin stock hasta que llegue más), con el mismo alcance que al editarlo."""
+    return actualizar_tipo(TipoUpdate(estado=datos.estado), tipo_id, db, usuario)
 
 
 def eliminar_tipo(tipo_id: int, db: Session, usuario: Usuario):

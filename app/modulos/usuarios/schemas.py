@@ -1,13 +1,61 @@
 # Esquemas de Usuario (entrada, salida y listado paginado). La contraseña nunca se devuelve.
 from datetime import datetime
-from typing import Annotated, List, Optional
+from typing import Annotated, Any, List, Optional
 
-from pydantic import (AfterValidator, BaseModel, BeforeValidator, ConfigDict, EmailStr, Field,
-                      StringConstraints, ValidationInfo, field_validator)
+from pydantic import (AfterValidator, BaseModel, BeforeValidator, ConfigDict, EmailStr, Field, StringConstraints,
+                      WithJsonSchema, field_validator)
 from pydantic_core import PydanticCustomError
 
-from app.modulos.comun.validadores import Entero, Telefono, error_documento
 from app.modulos.roles.schemas import PermisoResumen  # {id, nombre} de cada permiso
+
+MSG_SOLO_NUMEROS = "solo puede tener números"
+MSG_TELEFONO_LARGO = "debe tener entre 7 y 15 dígitos"
+MSG_DOCUMENTO = "solo puede tener letras y números"
+MSG_NUMERO = "debe ser un número"
+
+
+def _exigir_numero(valor):
+    """Solo deja pasar números del JSON (10). Rechaza textos ("10"), true/false y listas.
+    null sigue su curso normal: lo permite o lo rechaza el propio campo."""
+    if valor is not None and (isinstance(valor, bool) or not isinstance(valor, (int, float))):
+        raise PydanticCustomError("no_es_numero", MSG_NUMERO)
+    return valor
+
+
+# Id enviado como número en el JSON: 3, no "3"
+Entero = Annotated[int, BeforeValidator(_exigir_numero)]
+
+# empresa_id: el schema lo acepta como venga, porque solo se tiene en cuenta si quien lo envía es admin
+# (ahí lo valida validate_empresa_id); a los demás se les ignora, aunque llegue mal escrito
+EmpresaIdDelBody = Annotated[Any, WithJsonSchema({"anyOf": [{"type": "integer"}, {"type": "null"}]})]
+
+
+def _validar_telefono(valor: str) -> str:
+    """Solo dígitos (0-9), de 7 a 15. Se permite "" (sirve para borrar el teléfono)."""
+    if valor == "":
+        return valor
+    if not (valor.isascii() and valor.isdigit()):
+        raise PydanticCustomError("solo_numeros", MSG_SOLO_NUMEROS)
+    if not 7 <= len(valor) <= 15:
+        raise PydanticCustomError("telefono_largo", MSG_TELEFONO_LARGO)
+    return valor
+
+
+def _validar_documento(valor: str) -> str:
+    """Letras (sin tildes ni ñ) y números: los documentos extranjeros pueden llevar letras. Sin espacios ni símbolos.
+    Se permite "" (sirve para borrar el documento)."""
+    if valor and not (valor.isascii() and valor.isalnum()):
+        raise PydanticCustomError("documento", MSG_DOCUMENTO)
+    return valor
+
+
+# Teléfono: se guarda como texto (puede empezar en 0), pero solo con dígitos
+Telefono = Annotated[str, StringConstraints(strip_whitespace=True), AfterValidator(_validar_telefono),
+                     WithJsonSchema({"type": "string", "pattern": "^([0-9]{7,15})?$"})]
+
+# Documento: texto con letras y números, hasta 30, sin importar el tipo de documento
+Documento = Annotated[str, StringConstraints(strip_whitespace=True, max_length=30), AfterValidator(_validar_documento),
+                      WithJsonSchema({"type": "string", "pattern": "^[A-Za-z0-9]{0,30}$"})]
 
 # Nombre: se quitan los espacios al inicio y al final y luego debe tener de 1 a 100 caracteres
 NombreUsuario = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
@@ -16,7 +64,6 @@ NombreUsuario = Annotated[str, StringConstraints(strip_whitespace=True, min_leng
 Contrasena = Annotated[str, StringConstraints(min_length=8, max_length=72)]
 
 # Textos opcionales de facturación: se quitan los espacios; "" se permite para borrar el campo
-Texto30 = Annotated[str, StringConstraints(strip_whitespace=True, max_length=30)]
 Texto100 = Annotated[str, StringConstraints(strip_whitespace=True, max_length=100)]
 Texto200 = Annotated[str, StringConstraints(strip_whitespace=True, max_length=200)]
 
@@ -79,19 +126,27 @@ class UsuarioCreate(BaseModel):
         description="**Obligatorio.** Contraseña de 8 a 72 caracteres. Se guarda cifrada (bcrypt) y **nunca** se devuelve.",
         examples=["Cliente123*"],
     )
-    rol_id: Entero = Field(
-        description="**Obligatorio.** Id de un rol existente (consulta `GET /roles`). Debe ser un número, no un texto.",
+    rol_id: Optional[Entero] = Field(
+        default=None,
+        description="**Obligatorio** (solo una empresa lo puede omitir: se asigna bodeguero). Id de un rol existente "
+                    "(consulta `GET /roles`). Debe ser un número, no un texto.",
         examples=[3],
+    )
+    empresa_id: EmpresaIdDelBody = Field(
+        default=None,
+        description="**Obligatorio si el admin crea un bodeguero o un usuario empresa.** Id numérico de una empresa activa "
+                    "(ver `GET /empresas?estado=activa`). En los demás roles, o si no lo envía el admin, se **ignora**: "
+                    "lo que crea una empresa queda en la empresa del token.",
+        examples=[1],
     )
     tipo_documento: Optional[TipoDocumento] = Field(
         default=None,
         description="Opcional. Tipo de documento: `CC`, `NIT`, `CE` o `PA` (se acepta en minúsculas y se guarda en mayúsculas).",
         examples=["CC"],
     )
-    numero_documento: Optional[Texto30] = Field(
+    numero_documento: Optional[Documento] = Field(
         default=None,
-        description="Opcional. Número de documento, hasta 30 caracteres. Debe ser único. **Solo números**; "
-                    "si el tipo es `PA` (pasaporte) también acepta letras.",
+        description="Opcional. Número de documento: **letras y números**, hasta 30 caracteres. Debe ser único (sin distinguir mayúsculas).",
         examples=["1020304050"],
     )
     telefono: Optional[Telefono] = Field(default=None, description="Opcional. Teléfono: **solo números**, de 7 a 15 dígitos.",
@@ -105,15 +160,6 @@ class UsuarioCreate(BaseModel):
         description="Opcional. `true` = activo, `false` = inactivo (no puede iniciar sesión). Si no se envía, queda activo.",
         examples=[True],
     )
-
-    @field_validator("numero_documento", mode="after")
-    @classmethod
-    def documento_segun_tipo(cls, valor, info: ValidationInfo):
-        """Solo números (o letras y números si es pasaporte). Si el tipo vino mal, ya hay un error por el tipo."""
-        mensaje = error_documento(info.data["tipo_documento"], valor) if "tipo_documento" in info.data else None
-        if mensaje:
-            raise PydanticCustomError("documento", mensaje)
-        return valor
 
 
 class UsuarioUpdate(BaseModel):
@@ -144,15 +190,20 @@ class UsuarioUpdate(BaseModel):
         description="Opcional. Id de un rol existente. Si no se envía o llega en `null`, no se cambia.",
         examples=[3],
     )
+    empresa_id: EmpresaIdDelBody = Field(
+        default=None,
+        description="**Obligatorio solo si el admin le cambia el rol a bodeguero o empresa y el usuario no tiene empresa.** "
+                    "Id numérico de una empresa activa. En cualquier otro caso se **ignora**: la empresa no se edita.",
+        examples=[1],
+    )
     tipo_documento: Optional[TipoDocumento] = Field(
         default=None,
         description="Opcional. `CC`, `NIT`, `CE` o `PA`. " + TEXTO_BORRAR,
         examples=["CC"],
     )
-    numero_documento: Optional[Texto30] = Field(
+    numero_documento: Optional[Documento] = Field(
         default=None,
-        description="Opcional. Número de documento; no puede tenerlo **otro** usuario. **Solo números**; "
-                    "si el tipo es `PA` (pasaporte) también acepta letras. " + TEXTO_BORRAR,
+        description="Opcional. Número de documento: **letras y números**; no puede tenerlo **otro** usuario. " + TEXTO_BORRAR,
         examples=["1020304050"],
     )
     telefono: Optional[Telefono] = Field(default=None,
@@ -186,6 +237,8 @@ class UsuarioOut(BaseModel):
                 "telefono": "3001234567",
                 "direccion": "Calle 10 # 20-30",
                 "ciudad": "Bogotá",
+                "empresa_id": 1,
+                "empresa_nombre": "Distribuidora Andina S.A.S.",
                 "estado": True,
                 "creado_en": "2026-11-18T10:30:00",
                 "actualizado_en": "2026-11-18T10:30:00",
@@ -207,6 +260,11 @@ class UsuarioOut(BaseModel):
     telefono: Optional[str] = Field(default=None, description="Teléfono, o `null`.", examples=["3001234567"])
     direccion: Optional[str] = Field(default=None, description="Dirección, o `null`.", examples=["Calle 10 # 20-30"])
     ciudad: Optional[str] = Field(default=None, description="Ciudad, o `null`.", examples=["Bogotá"])
+    empresa_id: Optional[int] = Field(default=None, description="Empresa a la que pertenece el usuario, o `null` si no tiene.",
+                                      examples=[1])
+    empresa_nombre: Optional[str] = Field(default=None, validation_alias="empresa",
+                                          description="Razón social de su empresa, o `null` si no tiene.",
+                                          examples=["Distribuidora Andina S.A.S."])
     estado: bool = Field(description="`true` = activo, `false` = inactivo (no puede iniciar sesión).", examples=[True])
     creado_en: datetime = Field(description="Fecha y hora de creación (la pone el servidor).",
                                 examples=["2026-11-18T10:30:00"])
@@ -220,6 +278,12 @@ class UsuarioOut(BaseModel):
                                            examples=[1])
     permisos: List[PermisoResumen] = Field(default_factory=list,
                                            description="Permisos efectivos del usuario (lista vacía si no tiene).")
+
+    @field_validator("empresa_nombre", mode="before")
+    @classmethod
+    def nombre_de_la_empresa(cls, valor):
+        """El modelo entrega el objeto Empresa (relación "empresa"); aquí se convierte en su razón social."""
+        return valor.razon_social if hasattr(valor, "razon_social") else valor
 
     @field_validator("rol", mode="before")
     @classmethod
@@ -251,3 +315,26 @@ class UsuarioPermisosUpdate(BaseModel):
                     "Una lista vacía `[]` le quita todos. Los ids repetidos se ignoran.",
         examples=[[1, 2]],
     )
+
+
+# ===== ACTIVAR / DESACTIVAR (PATCH /{id}/estado) =====
+
+MSG_BOOLEANO = "debe ser true o false"
+
+
+def _exigir_booleano(valor):
+    """Solo deja pasar true o false del JSON. Rechaza "true", 1, "si" y null."""
+    if not isinstance(valor, bool):
+        raise PydanticCustomError("no_es_booleano", MSG_BOOLEANO)
+    return valor
+
+
+Booleano = Annotated[bool, BeforeValidator(_exigir_booleano)]
+
+
+class UsuarioEstadoUpdate(BaseModel):
+    """Activa o desactiva el usuario."""
+    model_config = ConfigDict(json_schema_extra={"examples": [{"estado": False}, {"estado": True}]})
+
+    estado: Booleano = Field(description="**Obligatorio.** `true` activa y `false` desactiva el usuario. Inactivo no puede iniciar sesión y su token deja de funcionar.",
+                             examples=[False])

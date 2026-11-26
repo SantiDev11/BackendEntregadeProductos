@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from app.config import seed
 from app.core.deps import no_empresa
 from app.core.permisos import PLANTILLAS
-from app.modulos import Permiso, Rol, Usuario
+from app.modulos import Empresa, Permiso, Rol, Usuario
 
 MIGRACION = RAIZ / "migraciones" / "007_rol_empresa.py"
 ESPERADOS = {
@@ -114,7 +114,8 @@ def crear_usuario(rol_nombre, correo, todos=False):
     from app.core.security import hash_password
     with SessionLocal() as s:
         rol = s.query(Rol).filter(Rol.nombre == rol_nombre).one()
-        u = Usuario(nombre=rol_nombre, correo=correo, contrasena=hash_password("Temp1234*"), rol_id=rol.id,
+        empresa = Empresa(razon_social=correo, estado="activa") if rol_nombre == "empresa" else None
+        u = Usuario(nombre=rol_nombre, correo=correo, contrasena=hash_password("Temp1234*"), rol_id=rol.id, empresa=empresa,
                     permisos=s.query(Permiso).all() if todos else list(rol.permisos))
         s.add(u); s.commit()
         return u.id
@@ -131,12 +132,11 @@ BLOQUEADOS = [
     # gestión de permisos y roles (ver y cambiar)
     ("GET", "/permisos"), ("GET", "/permisos/1"), ("POST", "/permisos"), ("PUT", "/permisos/1"), ("DELETE", "/permisos/1"),
     ("GET", "/roles"), ("GET", "/roles/1"), ("POST", "/roles"), ("PUT", "/roles/1"), ("PUT", "/roles/1/permisos"), ("DELETE", "/roles/1"),
+    ("PATCH", "/roles/1/estado"),
     ("GET", "/usuarios/1/permisos"), ("PUT", "/usuarios/1/permisos"), ("POST", "/usuarios/1/permisos/1"),
     ("DELETE", "/usuarios/1/permisos/1"),
     # facturas
     ("POST", "/facturas/1/aceptar"), ("POST", "/facturas/1/rechazar"),
-    # TEMPORAL: hasta limitarlo a los bodegueros de su empresa
-    ("POST", "/usuarios"), ("PUT", "/usuarios/1"), ("DELETE", "/usuarios/1"),
 ]
 
 
@@ -162,8 +162,8 @@ def test_empresa_no_puede_escalar_a_admin(api, empresa):
         antes = s.query(Usuario).count()
     nuevo = {"nombre": "x", "correo": "nuevo@x.com", "contrasena": "Temp1234*", "rol_id": admin_rol}
     assert api.post("/usuarios", headers=empresa, json=nuevo).status_code == 403
-    assert api.put(f"/usuarios/{yo}", headers=empresa, json={"rol_id": admin_rol}).status_code == 403
-    assert api.put("/usuarios/1", headers=empresa, json={"contrasena": "Hackeado1*"}).status_code == 403
+    assert api.put(f"/usuarios/{yo}", headers=empresa, json={"rol_id": admin_rol}).status_code == 404  # T7: solo ve sus bodegueros
+    assert api.put("/usuarios/1", headers=empresa, json={"contrasena": "Hackeado1*"}).status_code == 404
     entrar(api, "admin@entrega.com", "Admin123*")  # la contraseña del admin no cambió
     with SessionLocal() as s:
         assert s.query(Usuario).count() == antes and s.get(Usuario, yo).rol.nombre == "empresa"
@@ -216,7 +216,12 @@ def test_los_demas_roles_no_cambian(api):
     for ruta in ("/permisos", "/roles", "/usuarios", "/usuarios/1/permisos"):
         assert api.get(ruta, headers=admin).status_code == 200, ruta
     rol = next(r["id"] for r in api.get("/roles", headers=admin).json()["data"] if r["nombre"] == "empresa")
-    r = api.post("/usuarios", headers=admin, json={"nombre": "E", "correo": "e3@x.com", "contrasena": "Temp1234*", "rol_id": rol})
+    with SessionLocal() as s:
+        e = Empresa(razon_social="E", estado="activa")
+        s.add(e); s.commit()
+        empresa_id = e.id  # T8: el admin debe indicarla
+    r = api.post("/usuarios", headers=admin, json={"nombre": "E", "correo": "e3@x.com", "contrasena": "Temp1234*", "rol_id": rol,
+                                                   "empresa_id": empresa_id})
     assert r.status_code == 201 and {p["nombre"] for p in r.json()["permisos"]} == ESPERADOS
     with SessionLocal() as s:  # un rol cualquiera con el permiso sigue entrando
         s.add(Rol(nombre="GERENTE", permisos=s.query(Permiso).filter(Permiso.nombre.in_(["roles_view", "permisos_view"])).all())); s.commit()

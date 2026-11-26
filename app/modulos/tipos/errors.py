@@ -1,7 +1,7 @@
 # Errores del módulo Tipos: los mensajes, las funciones que los lanzan y los ejemplos que muestra /docs.
 from app.core.docs import respuesta_error
 from app.core.errors import error_400, error_403, error_404
-from app.modulos.comun.validadores import MSG_NUMERO
+from app.modulos.tipos.schemas import MSG_BOOLEANO, MSG_NUMERO
 
 # ===== MENSAJES =====
 
@@ -90,3 +90,9 @@ DOC_422_ACTUALIZAR = respuesta_error(
     estado_invalido="estado: tiene un formato inválido",
 )
 DOC_400_ELIMINAR = respuesta_error("El tipo está usado en facturas", en_uso=MSG_USADO_EN_FACTURAS)
+DOC_422_ESTADO = respuesta_error(
+    "El id o el cuerpo no cumplen las validaciones",
+    id_invalido="tipo_id: tiene un formato inválido",
+    estado_faltante="estado: es obligatorio",
+    estado_texto=f"estado: {MSG_BOOLEANO}",
+)

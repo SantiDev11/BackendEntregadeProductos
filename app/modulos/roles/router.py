@@ -5,11 +5,12 @@ from sqlalchemy.orm import Session
 from app.config.database import get_db
 from app.core.deps import get_current_user, no_empresa, require_permiso
 from app.core.docs import ERROR_401, ERROR_403
-from app.modulos.roles.schemas import RolCreate, RolUpdate, RolPermisosUpdate, RolOut, RolPaginado
+from app.modulos.roles.schemas import RolCreate, RolEstadoUpdate, RolUpdate, RolPermisosUpdate, RolOut, RolPaginado
 from app.modulos.usuarios.models import Usuario
 from app.modulos.roles import services
 from app.modulos.roles.errors import (DOC_404, DOC_400_DUPLICADO, DOC_422_ID, DOC_422_LISTAR, DOC_422_CREAR,
-                                      DOC_422_ACTUALIZAR, DOC_400_ASIGNAR, DOC_422_ASIGNAR, DOC_400_ELIMINAR)
+                                      DOC_422_ACTUALIZAR, DOC_400_ASIGNAR, DOC_422_ASIGNAR, DOC_400_ELIMINAR,
+                                      DOC_400_ESTADO, DOC_422_ESTADO)
 
 # Permiso que exige cada acción (los permisos se leen de la BD en cada petición; el rol admin siempre pasa)
 puede_ver = require_permiso("roles_view")
@@ -158,6 +159,7 @@ Para cambiar sus permisos se usa `PUT /roles/{rol_id}/permisos`.
 **Reglas:**
 - Un campo que no se envía, o que llega en `null`, no se cambia.
 - El nombre no puede ser igual al de **otro** rol (sin distinguir mayúsculas). Volver a enviar el mismo nombre del rol no es error.
+- Solo el `admin` puede cambiarle el nombre a un rol base (`admin`, `bodeguero`, `empresa`, `cliente`): los demás reciben 403.
 - El servidor guarda en `actualizado_por` el id del usuario que hace el cambio y actualiza `actualizado_en`.
   `creado_por` y `creado_en` no cambian.
 
@@ -181,6 +183,47 @@ def actualizar_rol(
     """Actualiza solo los campos enviados (los que lleguen en null se ignoran)
     y registra quién hizo el cambio. Para borrar la descripción se envía "" (cadena vacía)."""
     return services.actualizar_rol(datos, rol_id, db, usuario)
+
+
+@router.patch(
+    "/{rol_id}/estado",
+    response_model=RolOut,
+    summary="Activar o desactivar el rol",
+    description=f"""
+Activa o desactiva el rol sin tocar sus demás datos. Es lo mismo que enviar solo `estado` al `PUT`.
+
+**Permiso requerido:** `roles_edit`. El rol `admin` siempre tiene acceso. Requiere `Authorization: Bearer <token>`.
+
+**Cuerpo:** `{{"estado": false}}` para desactivar o `{{"estado": true}}` para activar.
+- `estado` es **obligatorio** y debe ser `true` o `false` del JSON: `"true"`, `1` o `null` dan 422 `estado: debe ser true o false`.
+- Repetir el mismo estado no es error.
+
+**Reglas:**
+- Un rol inactivo **no se puede asignar** al crear o editar usuarios (400 `El rol indicado no está activo`).
+  Los usuarios que ya lo tienen siguen igual.
+- Los roles base (`admin`, `empresa`, `bodeguero` y `cliente`) **no se pueden desactivar** (400).
+- El rol `empresa` no entra a este módulo (403).
+- Guarda en `actualizado_por` quién hizo el cambio.
+
+**Devuelve:** el rol con su nuevo estado.
+""",
+    response_description="El rol con su nuevo estado",
+    responses={
+        400: DOC_400_ESTADO,
+        401: ERROR_401,
+        403: ERROR_403,
+        404: DOC_404,
+        422: DOC_422_ESTADO,
+    },
+)
+def cambiar_estado_rol(
+    datos: RolEstadoUpdate,
+    rol_id: int = Path(description="Id de el rol.", examples=[1]),
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(puede_editar),
+):
+    """Activa o desactiva el rol, con las mismas reglas que al editarlo."""
+    return services.cambiar_estado_rol(datos, rol_id, db, usuario)
 
 
 @router.put(

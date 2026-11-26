@@ -13,6 +13,7 @@ from app.modulos.bodegas import router as bodegas
 from app.modulos.permisos import router as permisos
 from app.modulos.roles import router as roles
 from app.modulos.usuarios import router as usuarios
+from app.modulos.clientes import router as clientes
 from app.modulos.facturas import router as facturas
 from app.modulos.estadisticas import router as estadisticas
 from app.core.errors import validation_exception_handler
@@ -31,12 +32,13 @@ TAGS = [
     {"name": "Auth", "description": "Inicio de sesión (token JWT) y datos del usuario de la sesión, con sus permisos. "
                                     "**Acceso por permisos:** cada endpoint exige un permiso (`modulo_accion`) que se lee "
                                     "de la BD en cada petición; el rol `admin` siempre tiene acceso."},
-    {"name": "Empresas", "description": "Aprobar, rechazar y suspender empresas. Solo el rol `admin`."},
+    {"name": "Empresas", "description": "CRUD de empresas, y aprobarlas, rechazarlas o suspenderlas. Solo el rol `admin`."},
     {"name": "Tipos", "description": "CRUD de tipos de producto. Permisos `tipos_view/create/edit/delete`."},
     {"name": "Bodegas", "description": "CRUD de bodegas (puntos de despacho). Permisos `bodegas_*`. El admin ve todas; los demás solo las suyas."},
     {"name": "Permisos", "description": "Catálogo de permisos. Permisos `permisos_*`."},
     {"name": "Roles", "description": "CRUD de roles y su plantilla de permisos. Permisos `roles_*`."},
     {"name": "Usuarios", "description": "CRUD de usuarios y sus permisos (la contraseña nunca se devuelve). Permisos `usuarios_*`."},
+    {"name": "Clientes", "description": "Buscar el cliente al que se le va a facturar. Permiso `facturas_create`."},
     {"name": "Facturas", "description": "Órdenes de entrega (la orden es la factura): borrador, entrega, firma o rechazo del cliente, recepción y PDF."},
     {"name": "Estadísticas", "description": "Panel de estadísticas según el rol (tarjetas y gráficos). Permiso `estadisticas_view`."},
     {"name": "Inicio", "description": "Comprobar que la API está funcionando."},
@@ -91,6 +93,7 @@ app.include_router(bodegas.router)
 app.include_router(permisos.router)
 app.include_router(roles.router)
 app.include_router(usuarios.router)
+app.include_router(clientes.router)
 app.include_router(facturas.router)
 app.include_router(estadisticas.router)
 

@@ -1,7 +1,8 @@
 # Errores del módulo Bodegas: los mensajes, las funciones que los lanzan y los ejemplos que muestra /docs.
 from app.core.docs import respuesta_error
 from app.core.errors import error_400, error_404
-from app.modulos.comun.validadores import MSG_NUMERO, MSG_SOLO_NUMEROS, MSG_TELEFONO_LARGO
+from app.modulos.bodegas.schemas import MSG_BOOLEANO, MSG_DOCUMENTO, MSG_NUMERO, MSG_SOLO_NUMEROS, MSG_TELEFONO_LARGO
+from app.modulos.empresas.errors import MSG_ID_NO_ACTIVA, MSG_ID_NO_EXISTE, MSG_ID_OBLIGATORIO
 
 # ===== MENSAJES =====
 
@@ -9,6 +10,7 @@ MSG_NO_ENCONTRADA = "Bodega no encontrada"
 MSG_NOMBRE_DUPLICADO = "Ya existe una bodega con ese nombre"
 MSG_CODIGO_DUPLICADO = "Ya existe una bodega con ese código"
 MSG_BODEGUERO_INVALIDO = "El bodeguero indicado no existe o no tiene rol bodeguero"
+MSG_BODEGUERO_OTRA_EMPRESA = "El bodeguero no pertenece a la empresa de la bodega"
 MSG_TIENE_FACTURAS = "No se puede eliminar: la bodega tiene facturas"
 MSG_TIENE_TIPOS = "No se puede eliminar: la bodega tiene tipos"
 
@@ -31,6 +33,10 @@ def bodeguero_invalido():
     return error_400(MSG_BODEGUERO_INVALIDO)
 
 
+def bodeguero_de_otra_empresa():
+    return error_400(MSG_BODEGUERO_OTRA_EMPRESA)
+
+
 def tiene_facturas():
     return error_400(MSG_TIENE_FACTURAS)
 
@@ -43,12 +49,15 @@ def tiene_tipos():
 
 DOC_404 = respuesta_error("No existe una bodega con ese id, o no le pertenece al bodeguero",
                           no_existe=MSG_NO_ENCONTRADA)
-DOC_400_GUARDAR = respuesta_error(
-    "Nombre o código repetido, o bodeguero inválido (admin)",
-    duplicado=MSG_NOMBRE_DUPLICADO,
-    codigo_duplicado=MSG_CODIGO_DUPLICADO,
-    bodeguero_invalido=MSG_BODEGUERO_INVALIDO,
-)
+_EJEMPLOS_400 = {
+    "duplicado": MSG_NOMBRE_DUPLICADO,
+    "codigo_duplicado": MSG_CODIGO_DUPLICADO,
+    "bodeguero_invalido": MSG_BODEGUERO_INVALIDO,
+    "bodeguero_otra_empresa": MSG_BODEGUERO_OTRA_EMPRESA,
+}
+DOC_400_CREAR = respuesta_error("Nombre o código repetido, bodeguero inválido o empresa no activa (admin)",
+                                **_EJEMPLOS_400, empresa_no_activa=MSG_ID_NO_ACTIVA)
+DOC_400_ACTUALIZAR = respuesta_error("Nombre o código repetido, o bodeguero inválido (admin)", **_EJEMPLOS_400)
 DOC_400_ELIMINAR = respuesta_error("La bodega tiene facturas o tipos",
                                    en_uso=MSG_TIENE_FACTURAS,
                                    con_tipos=MSG_TIENE_TIPOS)
@@ -68,8 +77,11 @@ DOC_422_CREAR = respuesta_error(
     correo_invalido="correo: formato de correo inválido",
     telefono_con_letras=f"telefono: {MSG_SOLO_NUMEROS}",
     telefono_largo=f"recibe_telefono: {MSG_TELEFONO_LARGO}",
-    documento_con_letras=f"recibe_documento: {MSG_SOLO_NUMEROS}",
+    documento_con_simbolos=f"recibe_documento: {MSG_DOCUMENTO}",
     bodeguero_como_texto=f"bodeguero_id: {MSG_NUMERO}",
+    empresa_id_faltante=f"empresa_id: {MSG_ID_OBLIGATORIO}",
+    empresa_id_invalido=f"empresa_id: {MSG_NUMERO}",
+    empresa_id_inexistente=f"empresa_id: {MSG_ID_NO_EXISTE}",
     json_invalido="El cuerpo de la petición no es un JSON válido",
 )
 DOC_422_EDITAR = respuesta_error(
@@ -81,7 +93,13 @@ DOC_422_EDITAR = respuesta_error(
     correo_invalido="correo: formato de correo inválido",
     telefono_con_letras=f"telefono: {MSG_SOLO_NUMEROS}",
     telefono_largo=f"recibe_telefono: {MSG_TELEFONO_LARGO}",
-    documento_con_letras=f"recibe_documento: {MSG_SOLO_NUMEROS}",
+    documento_con_simbolos=f"recibe_documento: {MSG_DOCUMENTO}",
     bodeguero_como_texto=f"bodeguero_id: {MSG_NUMERO}",
     estado_invalido="estado: tiene un formato inválido",
+)
+DOC_422_ESTADO = respuesta_error(
+    "El id o el cuerpo no cumplen las validaciones",
+    id_invalido="bodega_id: tiene un formato inválido",
+    estado_faltante="estado: es obligatorio",
+    estado_texto=f"estado: {MSG_BOOLEANO}",
 )

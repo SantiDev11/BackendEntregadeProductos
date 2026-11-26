@@ -2,9 +2,10 @@
 from sqlalchemy.orm import Session
 
 from app.modulos.roles import errors, queries
-from app.modulos.roles.helpers import get_rol_or_404, validate_unique_rol_name
+from app.modulos.roles.helpers import (get_rol_or_404, validate_puede_desactivar, validate_puede_renombrar,
+                                      validate_unique_rol_name)
 from app.modulos.roles.models import Rol
-from app.modulos.roles.schemas import RolCreate, RolUpdate, RolPermisosUpdate, RolOut, RolPaginado
+from app.modulos.roles.schemas import RolCreate, RolEstadoUpdate, RolUpdate, RolPermisosUpdate, RolOut, RolPaginado
 from app.modulos.usuarios.models import Usuario
 
 
@@ -42,7 +43,10 @@ def actualizar_rol(datos: RolUpdate, rol_id: int, db: Session, usuario: Usuario)
     cambios = datos.model_dump(exclude_none=True)
 
     if "nombre" in cambios:
+        validate_puede_renombrar(rol, cambios["nombre"], usuario)
         validate_unique_rol_name(db, cambios["nombre"], excluir_id=rol_id)
+    if "estado" in cambios:
+        validate_puede_desactivar(rol, cambios["estado"])
 
     for campo, valor in cambios.items():
         setattr(rol, campo, valor)
@@ -51,6 +55,11 @@ def actualizar_rol(datos: RolUpdate, rol_id: int, db: Session, usuario: Usuario)
     db.commit()
     db.refresh(rol)
     return rol
+
+
+def cambiar_estado_rol(datos: RolEstadoUpdate, rol_id: int, db: Session, usuario: Usuario):
+    """Activa o desactiva el rol, con las mismas reglas que al editarlo."""
+    return actualizar_rol(RolUpdate(estado=datos.estado), rol_id, db, usuario)
 
 
 def asignar_permisos_rol(datos: RolPermisosUpdate, rol_id: int, db: Session, usuario: Usuario):

@@ -4,10 +4,12 @@ from fastapi import APIRouter, Depends, Path, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
+from app.core.alcance import Alcance, filtro_empresa
 from app.core.deps import get_current_user, no_empresa, require_permiso
 from app.core.docs import ERROR_401
-from app.modulos.facturas.schemas import (ClientePaginado, FacturaCreate, FacturaOut, FacturaPaginado, FacturaUpdate,
-                                          FirmaIn, RechazoIn)
+from app.modulos.clientes.schemas import ClientePaginado
+from app.modulos.facturas.schemas import (FacturaCreate, FacturaOut, FacturaPaginado, FacturaUpdate, FirmaIn,
+                                          RechazoIn)
 from app.modulos.usuarios.models import Usuario
 from app.modulos.facturas import services
 from app.modulos.facturas.errors import (DOC_404, DOC_422_ID, DOC_400_ESTADO, DOC_403_GESTION, DOC_403_CLIENTE,
@@ -45,7 +47,7 @@ Devuelve las facturas en páginas, de la más reciente a la más antigua, con b�
 
 **Permiso requerido:** `facturas_view`. El rol `admin` siempre tiene acceso. Requiere `Authorization: Bearer <token>`.
 
-**Alcance (se deduce del token):** `admin` ve todas; `cliente`, las que creó + las que tienen su `cliente_id`
+**Alcance (se deduce del token):** `admin` ve todas (en el listado puede filtrar con `empresa_id`); `empresa`, las de su empresa; `cliente`, las que creó + las que tienen su `cliente_id`
 (de estas, nunca las `emitida`); cualquier otro usuario (bodeguero), solo las que creó. Si no es suya: **404**.
 
 **Parámetros (todos opcionales):**
@@ -54,7 +56,7 @@ Devuelve las facturas en páginas, de la más reciente a la más antigua, con b�
 - `page`: número de página, empieza en 1.
 - `limit`: elementos por página, por defecto 10 y máximo 100.
 
-**Devuelve:** `{"data": [...], "total": n, "page": p, "limit": l}`. Cada fila trae `id`, `numero`, `estado`,
+**Devuelve:** `{"data": [...], "total": n, "page": p, "limit": l}`. Cada fila trae `id`, `numero`, `empresa_id`, `empresa_nombre`, `estado`,
 `fecha_emision`, `cliente_id`, `cliente_nombre`, `bodega_nombre`, `creado_por_id`, `creado_por_nombre` y `total`.
 """,
     response_description="Página de facturas con el total que cumple los filtros",
@@ -70,17 +72,23 @@ def listar_facturas(
     limit: int = Query(10, ge=1, le=100, description="Elementos por página. Por defecto 10, máximo 100."),
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(puede_ver),
+    alcance: Alcance = Depends(filtro_empresa),
 ):
     """Lista las facturas. El cliente solo ve las suyas (y no los borradores)."""
-    return services.listar_facturas(q, estado, page, limit, db, usuario)
+    return services.listar_facturas(q, estado, page, limit, db, alcance)
 
 
+# DEPRECATED: lo reemplaza GET /clientes/buscar. Se retira cuando el frontend confirme que ya no lo usa; con él se van
+# services.listar_clientes_para_facturar, queries.listar_clientes y DOC_422_LISTAR_CLIENTES_PARA_FACTURAR.
 # Va ANTES de "/{factura_id}": si no, FastAPI intentaría leer "clientes" como un id y respondería 422
 @router.get(
     "/clientes",
     response_model=ClientePaginado,
-    summary="Clientes para facturar",
+    deprecated=True,
+    summary="Clientes para facturar (en desuso)",
     description="""
+**En desuso:** usa `GET /clientes/buscar`. Sigue funcionando igual hasta que el frontend confirme el cambio.
+
 Lista los clientes **activos** para elegir el adquiriente al crear una factura.
 Solo trae `id`, `nombre`, `tipo_documento` y `numero_documento`, sin acceso al módulo de Usuarios.
 
@@ -122,7 +130,7 @@ validación electrónica (simulada), datos del software y trazabilidad (incluida
 
 **Permiso requerido:** `facturas_view`. El rol `admin` siempre tiene acceso. Requiere `Authorization: Bearer <token>`.
 
-**Alcance (se deduce del token):** `admin` ve todas; `cliente`, las que creó + las que tienen su `cliente_id`
+**Alcance (se deduce del token):** `admin` ve todas (en el listado puede filtrar con `empresa_id`); `empresa`, las de su empresa; `cliente`, las que creó + las que tienen su `cliente_id`
 (de estas, nunca las `emitida`); cualquier otro usuario (bodeguero), solo las que creó. Si no es suya: **404**.
 
 **Devuelve:** la factura, o 404.
@@ -147,7 +155,7 @@ Genera el PDF de la factura (con la firma del cliente si ya firmó).
 
 **Permiso requerido:** `facturas_pdf`. El rol `admin` siempre tiene acceso. Requiere `Authorization: Bearer <token>`.
 
-**Alcance (se deduce del token):** `admin` ve todas; `cliente`, las que creó + las que tienen su `cliente_id`
+**Alcance (se deduce del token):** `admin` ve todas (en el listado puede filtrar con `empresa_id`); `empresa`, las de su empresa; `cliente`, las que creó + las que tienen su `cliente_id`
 (de estas, nunca las `emitida`); cualquier otro usuario (bodeguero), solo las que creó. Si no es suya: **404**.
 
 **Devuelve:** `Content-Type: application/pdf` y `Content-Disposition: attachment; filename="FE-0001.pdf"`.
@@ -202,7 +210,7 @@ por ejemplo `{"cliente_id": "es obligatorio", "detalle[0].descripcion": "es obli
 **Solo números:** `cliente_id`, `bodega_id`, `tipo_id`, `cantidad`, `precio_unitario`, `descuento_porcentaje` e
 `iva_porcentaje` se envían como número (`10`), no como texto (`"10"`): un texto da 422 `"debe ser un número"`.
 
-**Lo calcula el servidor (no se envía):** número (`FE-0001`, `FE-0002`...), subtotales, descuentos, IVA y totales
+**Lo calcula el servidor (no se envía):** número (`FE-0001`, `FE-0002`..., consecutivo **por empresa**), subtotales, descuentos, IVA y totales
 de cada línea y de la factura, CUFE simulado, y la copia de los datos del emisor y del cliente.
 
 **Devuelve:** 201 con la factura completa.
@@ -235,7 +243,7 @@ Edita una factura que todavía está en **`emitida`**. **Solo cambia los campos 
 
 **Permiso requerido:** `facturas_edit`. El rol `admin` siempre tiene acceso. Requiere `Authorization: Bearer <token>`.
 
-**Alcance (se deduce del token):** `admin` ve todas; `cliente`, las que creó + las que tienen su `cliente_id`
+**Alcance (se deduce del token):** `admin` ve todas (en el listado puede filtrar con `empresa_id`); `empresa`, las de su empresa; `cliente`, las que creó + las que tienen su `cliente_id`
 (de estas, nunca las `emitida`); cualquier otro usuario (bodeguero), solo las que creó. Si no es suya: **404**.
 
 **Reglas:**
@@ -243,6 +251,7 @@ Edita una factura que todavía está en **`emitida`**. **Solo cambia los campos 
 - Si se envía `detalle`, **reemplaza todas** las líneas.
 - Si cambia el cliente, se vuelven a copiar sus datos.
 - Se recalculan los totales y el CUFE.
+- El `numero` no cambia, salvo que el admin la pase a una bodega de **otra empresa**: recibe el siguiente número de esa empresa.
 - Para borrar `observaciones` se envía `""`. `medio_pago` es obligatorio en la factura: se puede cambiar, no borrar.
 - Con `forma_pago: credito` debe haber `fecha_vencimiento` (enviada ahora o ya guardada).
 
@@ -278,7 +287,7 @@ Pasa la factura de **`emitida`** a **`entregada`** y guarda `fecha_entrega`. Des
 
 **Permiso requerido:** `facturas_entregar`. El rol `admin` siempre tiene acceso. Requiere `Authorization: Bearer <token>`.
 
-**Alcance (se deduce del token):** `admin` ve todas; `cliente`, las que creó + las que tienen su `cliente_id`
+**Alcance (se deduce del token):** `admin` ve todas (en el listado puede filtrar con `empresa_id`); `empresa`, las de su empresa; `cliente`, las que creó + las que tienen su `cliente_id`
 (de estas, nunca las `emitida`); cualquier otro usuario (bodeguero), solo las que creó. Si no es suya: **404**.
 """,
     response_description="La factura en estado entregada",
@@ -334,7 +343,7 @@ Para corregirla, el bodeguero crea una factura nueva.
 
 Además, solo el **cliente de la factura** puede hacerlo: cualquier otro usuario recibe 403.
 
-**Cuerpo:** `{"motivo": "texto"}`, de 1 a 255 caracteres.
+**Cuerpo:** `{"motivo_rechazo": "texto"}`, **obligatorio**, de 10 a 255 caracteres (sin contar los espacios del inicio y del final).
 """,
     response_description="La factura rechazada",
     responses={
@@ -360,7 +369,7 @@ El bodeguero recibe la factura firmada: pasa de **`firmada`** a **`recibida`** (
 
 **Permiso requerido:** `facturas_recibir`. El rol `admin` siempre tiene acceso. Requiere `Authorization: Bearer <token>`.
 
-**Alcance (se deduce del token):** `admin` ve todas; `cliente`, las que creó + las que tienen su `cliente_id`
+**Alcance (se deduce del token):** `admin` ve todas (en el listado puede filtrar con `empresa_id`); `empresa`, las de su empresa; `cliente`, las que creó + las que tienen su `cliente_id`
 (de estas, nunca las `emitida`); cualquier otro usuario (bodeguero), solo las que creó. Si no es suya: **404**.
 """,
     response_description="La factura recibida",
@@ -385,7 +394,7 @@ Elimina una factura que todavía está en **`emitida`**, junto con sus líneas. 
 
 **Permiso requerido:** `facturas_delete`. El rol `admin` siempre tiene acceso. Requiere `Authorization: Bearer <token>`.
 
-**Alcance (se deduce del token):** `admin` ve todas; `cliente`, las que creó + las que tienen su `cliente_id`
+**Alcance (se deduce del token):** `admin` ve todas (en el listado puede filtrar con `empresa_id`); `empresa`, las de su empresa; `cliente`, las que creó + las que tienen su `cliente_id`
 (de estas, nunca las `emitida`); cualquier otro usuario (bodeguero), solo las que creó. Si no es suya: **404**.
 
 **Devuelve:** 204 **sin cuerpo**.

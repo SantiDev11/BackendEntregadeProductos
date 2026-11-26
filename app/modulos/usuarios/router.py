@@ -5,15 +5,16 @@ from fastapi import APIRouter, Depends, Path, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
+from app.core.alcance import Alcance, filtro_empresa
 from app.core.deps import get_current_user, no_empresa, require_permiso
 from app.core.docs import ERROR_401, ERROR_403
 from app.modulos.usuarios.models import Usuario
 from app.modulos.usuarios.schemas import (UsuarioCreate, UsuarioUpdate, UsuarioOut, UsuarioPaginado, UsuarioPermisosOut,
-                                          UsuarioPermisosUpdate)
+                                          UsuarioPermisosUpdate, UsuarioEstadoUpdate)
 from app.modulos.usuarios import services
 from app.modulos.usuarios.errors import (DOC_404, DOC_422_ID, DOC_404_USUARIO_O_PERMISO, DOC_422_IDS, DOC_422_LISTAR,
                                          DOC_400_CREAR, DOC_422_CREAR, DOC_400_ACTUALIZAR, DOC_422_ACTUALIZAR,
-                                         DOC_400_ASIGNAR, DOC_422_ASIGNAR, DOC_400_ELIMINAR)
+                                         DOC_400_ASIGNAR, DOC_422_ASIGNAR, DOC_400_ELIMINAR, DOC_422_ESTADO)
 
 # Permiso que exige cada acción (los permisos se leen de la BD en cada petición; el rol admin siempre pasa)
 puede_ver = require_permiso("usuarios_view")
@@ -53,6 +54,8 @@ Devuelve los usuarios en páginas, con búsqueda por nombre o correo y filtros p
 - Los resultados se ordenan por `id`.
 - `total` es la cantidad que cumple los filtros, no solo la de la página actual.
 - Cada usuario trae `rol_id` y `rol` (el nombre del rol como texto). **Nunca** trae la contraseña.
+- **Alcance:** el `admin` ve todos y puede filtrar con `empresa_id`. Una `empresa` solo ve, crea, edita y elimina **bodegueros de su
+  empresa**; con cualquier otro usuario recibe 404, y con otro `rol_id`, 403.
 
 **Devuelve:** `{"data": [...], "total": n, "page": p, "limit": l}`.
 """,
@@ -72,9 +75,10 @@ def listar_usuarios(
     limit: int = Query(10, ge=1, le=100, description="Elementos por página. Por defecto 10, máximo 100."),
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(puede_ver),
+    alcance: Alcance = Depends(filtro_empresa),
 ):
     """Lista los usuarios con búsqueda por nombre o correo, filtros por estado y rol, y paginación."""
-    return services.listar_usuarios(q, estado, rol, rol_id, page, limit, db, usuario)
+    return services.listar_usuarios(q, estado, rol, rol_id, page, limit, db, alcance)
 
 
 @router.get(
@@ -107,7 +111,6 @@ def obtener_usuario(
 
 @router.post(
     "",
-    dependencies=[Depends(no_empresa)],  # TEMPORAL: hasta limitarlo a los bodegueros de su empresa
     response_model=UsuarioOut,
     status_code=status.HTTP_201_CREATED,
     summary="Crear un usuario",
@@ -120,7 +123,9 @@ Crea un usuario nuevo con su contraseña y su rol.
 - `nombre` (**obligatorio**): de 1 a 100 caracteres. Se quitan los espacios al inicio y al final.
 - `correo` (**obligatorio**): formato de correo válido.
 - `contrasena` (**obligatorio**): de 8 a 72 caracteres.
-- `rol_id` (**obligatorio**): id de un rol existente (ver `GET /roles`).
+- `rol_id` (**obligatorio**; solo una empresa lo puede omitir): id de un rol existente (ver `GET /roles`).
+- `empresa_id` (**obligatorio** si el admin crea un bodeguero o un usuario empresa): id numérico de una empresa activa
+  (ver `GET /empresas?estado=activa`).
 - Datos para facturar (opcionales): `tipo_documento` (`CC`, `NIT`, `CE` o `PA`), `numero_documento`,
   `telefono`, `direccion` y `ciudad`.
 - `estado` (opcional): por defecto `true` (activo).
@@ -128,10 +133,14 @@ Crea un usuario nuevo con su contraseña y su rol.
 **Reglas:**
 - El correo se guarda en **minúsculas** y debe ser único **sin distinguir mayúsculas**:
   si ya existe "cliente@entrega.com", "CLIENTE@ENTREGA.COM" da 400.
-- Si el `rol_id` no existe, responde 400.
+- Si el `rol_id` no existe, responde 400. Los roles `admin` y `empresa` solo los puede dar el admin (403 a los demás).
+- **Empresa:** si el admin crea un bodeguero o un usuario empresa y `empresa_id` falta, no es un número o no existe, responde 422;
+  si la empresa existe pero no está `activa`, responde 400.
+  Cuando crea una empresa, el usuario queda en la empresa **del token** y el `empresa_id` del cuerpo se **ignora**.
+  También se ignora en los demás roles (admin, cliente...), que no pertenecen a una empresa.
 - **Permisos:** el rol funciona como **plantilla**. Al crear el usuario se le copian los permisos que tenga su rol
   en ese momento. Después se cambian con `PUT /usuarios/{id}/permisos`.
-- `numero_documento` y `telefono` solo aceptan **números** (el teléfono, de 7 a 15 dígitos). Con `PA` el documento también acepta letras.
+- `telefono` solo acepta **números** (de 7 a 15 dígitos). `numero_documento` acepta letras y números, con cualquier tipo de documento.
 - `rol_id` debe ser un número: `3`, no `"3"`.
 - El `numero_documento` debe ser único. `tipo_documento` se acepta en minúsculas y se guarda en mayúsculas.
 - Los campos opcionales que no se envían, o que llegan como `""`, quedan en `null`.
@@ -162,7 +171,6 @@ def crear_usuario(
 
 @router.put(
     "/{usuario_id}",
-    dependencies=[Depends(no_empresa)],  # TEMPORAL: hasta limitarlo a los bodegueros de su empresa
     response_model=UsuarioOut,
     summary="Editar un usuario",
     description="""
@@ -185,11 +193,14 @@ Actualiza un usuario existente. **Solo cambia los campos que se envían.**
 **Reglas:**
 - Un campo que no se envía, o que llega en `null`, no se cambia.
 - Para **borrar** un dato para facturar se envía `""` (cadena vacía): queda en `null`.
-- `numero_documento` y `telefono` solo aceptan **números** (el teléfono, de 7 a 15 dígitos). Con `PA` el documento también acepta letras.
+- `telefono` solo acepta **números** (de 7 a 15 dígitos). `numero_documento` acepta letras y números, con cualquier tipo de documento.
 - El `numero_documento` no puede tenerlo **otro** usuario.
 - **Contraseña:** si no se envía, la actual **no** se toca. Si se envía, se guarda cifrada la nueva.
 - El correo no puede tenerlo **otro** usuario (sin distinguir mayúsculas). Volver a enviar el mismo correo del usuario no es error.
 - Si el `rol_id` no existe, responde 400.
+- Solo el `admin` puede modificar o eliminar a un admin, y dar los roles `admin` y `empresa`: los demás reciben 403.
+- **Empresa:** al cambiar el rol se conserva. Si el admin lo pasa a bodeguero o empresa y no tiene ninguna, debe enviar
+  `empresa_id` (422 si falta o no existe, 400 si no está activa). Si pasa a admin o cliente, queda sin empresa.
 - Cambiar el `rol_id` **no cambia los permisos** del usuario. Esos se manejan con `PUT /usuarios/{id}/permisos`.
 - El admin **no puede desactivarse a sí mismo** (`estado: false` sobre su propio id).
 - El servidor guarda en `actualizado_por` el id del usuario que hace el cambio y actualiza `actualizado_en`.
@@ -215,6 +226,47 @@ def actualizar_usuario(
     """Actualiza solo los campos enviados (los que lleguen en null se ignoran)
     y registra quién hizo el cambio. Si no llega contraseña, el hash no se toca."""
     return services.actualizar_usuario(datos, usuario_id, db, usuario)
+
+
+@router.patch(
+    "/{usuario_id}/estado",
+    response_model=UsuarioOut,
+    summary="Activar o desactivar el usuario",
+    description=f"""
+Activa o desactiva el usuario sin tocar sus demás datos. Es lo mismo que enviar solo `estado` al `PUT`.
+
+**Permiso requerido:** `usuarios_edit`. El rol `admin` siempre tiene acceso. Requiere `Authorization: Bearer <token>`.
+
+**Cuerpo:** `{{"estado": false}}` para desactivar o `{{"estado": true}}` para activar.
+- `estado` es **obligatorio** y debe ser `true` o `false` del JSON: `"true"`, `1` o `null` dan 422 `estado: debe ser true o false`.
+- Repetir el mismo estado no es error.
+
+**Reglas:**
+- Un usuario inactivo **no puede iniciar sesión** y su token deja de funcionar (401).
+- Nadie puede desactivarse a sí mismo (400).
+- Solo el `admin` puede activar o desactivar a un admin (403).
+- Una `empresa` solo activa o desactiva a **sus bodegueros**; otro usuario responde 404.
+- Guarda en `actualizado_por` quién hizo el cambio.
+
+**Devuelve:** el usuario con su nuevo estado.
+""",
+    response_description="El usuario con su nuevo estado",
+    responses={
+        400: DOC_400_ACTUALIZAR,
+        401: ERROR_401,
+        403: ERROR_403,
+        404: DOC_404,
+        422: DOC_422_ESTADO,
+    },
+)
+def cambiar_estado_usuario(
+    datos: UsuarioEstadoUpdate,
+    usuario_id: int = Path(description="Id de el usuario.", examples=[1]),
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(puede_editar),
+):
+    """Activa o desactiva el usuario, con las mismas reglas que al editarlo."""
+    return services.cambiar_estado_usuario(datos, usuario_id, db, usuario)
 
 
 # ===== PERMISOS DEL USUARIO =====
@@ -343,7 +395,6 @@ def quitar_permiso_usuario(
 
 @router.delete(
     "/{usuario_id}",
-    dependencies=[Depends(no_empresa)],  # TEMPORAL: hasta limitarlo a los bodegueros de su empresa
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Eliminar un usuario",
     description="""
@@ -355,7 +406,7 @@ Elimina un usuario de forma **definitiva** (no es un borrado lógico).
 - `usuario_id` (en la ruta): id del usuario a eliminar.
 
 **Reglas:**
-- El admin **no puede eliminarse a sí mismo**.
+- El admin **no puede eliminarse a sí mismo**, y solo un admin puede eliminar a otro (403 a los demás).
 - Para quitarle el acceso sin borrarlo, usa `PUT` con `{"estado": false}`.
 
 **Devuelve:** 204 **sin cuerpo**.

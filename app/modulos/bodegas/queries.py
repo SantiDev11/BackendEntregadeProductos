@@ -2,6 +2,7 @@
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
+from app.core.alcance import Alcance
 from app.modulos.bodegas.models import Bodega
 from app.modulos.facturas.models import Orden
 from app.modulos.roles.models import Rol
@@ -30,17 +31,15 @@ def existe_codigo(db: Session, codigo: str, excluir_id: int | None = None) -> bo
     return query.first() is not None
 
 
-def es_bodeguero(db: Session, usuario_id: int) -> bool:
-    """True si el usuario existe y tiene rol bodeguero."""
-    return db.query(Usuario).join(Usuario.rol).filter(
-        Usuario.id == usuario_id, Rol.nombre == "bodeguero"
-    ).first() is not None
+def obtener_bodeguero(db: Session, usuario_id: int) -> Usuario | None:
+    """El usuario si existe y tiene rol bodeguero; si no, None."""
+    return db.query(Usuario).join(Usuario.rol).filter(Usuario.id == usuario_id, Rol.nombre == "bodeguero").first()
 
 
-def listar(db: Session, q: str | None, estado: bool | None, bodeguero_id: int | None,
+def listar(db: Session, alcance: Alcance, q: str | None, estado: bool | None, bodeguero_id: int | None,
            page: int, limit: int) -> tuple[int, list[Bodega]]:
     """Devuelve (total que cumple los filtros, bodegas de la página con su dueño), ordenadas por id."""
-    query = db.query(Bodega)
+    query = db.query(Bodega).filter(*alcance.condiciones(Bodega.empresa_id))
     if q:
         query = query.filter(Bodega.nombre.ilike(f"%{q}%"))  # contiene, sin distinguir mayúsculas
     if estado is not None:

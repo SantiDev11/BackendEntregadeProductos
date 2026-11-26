@@ -20,6 +20,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # carpeta del proyecto
 
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from app.config.database import SessionLocal
 from app.modulos.facturas.emisor import EMISOR
@@ -109,6 +110,10 @@ def main():
             print("No se guardó nada: hay datos cruzados." if cruzados else "Simulación: no se guardó nada (use --aplicar).")
             if cruzados:
                 sys.exit(1)
+    except IntegrityError:
+        # Con la migración 008 el número es único por empresa: las facturas viejas no se renumeran
+        db.rollback()
+        raise SystemExit("No se guardó nada: la empresa ya tiene facturas con los mismos números que las viejas. Use otra empresa.")
     except Exception:
         db.rollback()
         raise

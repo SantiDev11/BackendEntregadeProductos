@@ -2,6 +2,7 @@
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
+from app.core.alcance import Alcance
 from app.modulos.bodegas.models import Bodega
 from app.modulos.facturas.models import OrdenDetalle
 from app.modulos.tipos.models import Tipo
@@ -22,11 +23,11 @@ def existe_nombre(db: Session, nombre: str, bodega_id: int | None, excluir_id: i
     return query.first() is not None
 
 
-def listar(db: Session, q: str | None, estado: bool | None, bodega_id: int | None,
+def listar(db: Session, alcance: Alcance, q: str | None, estado: bool | None, bodega_id: int | None,
            bodegas_permitidas: list[int] | None, page: int, limit: int) -> tuple[int, list[Tipo]]:
     """Devuelve (total que cumple los filtros, tipos de la página con su bodega), ordenados por id.
     `bodegas_permitidas`: None = todas (admin); una lista = solo tipos de esas bodegas."""
-    query = db.query(Tipo)
+    query = db.query(Tipo).filter(*alcance.condiciones(Tipo.empresa_id))
     if bodegas_permitidas is not None:
         query = query.filter(Tipo.bodega_id.in_(bodegas_permitidas))
     if bodega_id is not None:
@@ -47,9 +48,13 @@ def listar(db: Session, q: str | None, estado: bool | None, bodega_id: int | Non
     return total, tipos
 
 
-def ids_bodegas_del_usuario(db: Session, usuario_id: int) -> list[int]:
-    """Ids de las bodegas de las que el usuario es dueño, de menor a mayor."""
-    return [b.id for b in db.query(Bodega.id).filter(Bodega.bodeguero_id == usuario_id).order_by(Bodega.id).all()]
+def ids_bodegas(db: Session, alcance: Alcance) -> list[int]:
+    """Ids de las bodegas del usuario, de menor a mayor: todas las de su empresa si es el rol empresa;
+    si no, las de su empresa de las que es dueño."""
+    query = db.query(Bodega.id).filter(*alcance.condiciones(Bodega.empresa_id))
+    if not alcance.ve_toda_la_empresa:
+        query = query.filter(Bodega.bodeguero_id == alcance.usuario.id)
+    return [i for (i,) in query.order_by(Bodega.id).all()]
 
 
 def obtener_bodega(db: Session, bodega_id: int) -> Bodega | None:

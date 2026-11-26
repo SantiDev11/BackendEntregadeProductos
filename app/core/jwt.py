@@ -23,6 +23,7 @@ def create_access_token(user_id: int, rol: str) -> str:
     claims = {
         "sub": str(user_id),  # el estándar JWT pide que "sub" sea texto
         "rol": rol,
+        "type": "access",
         "exp": expira,
     }
     return jwt.encode(claims, SECRET_KEY, algorithm=ALGORITHM)
@@ -41,9 +42,12 @@ def create_refresh_token(user_id: int) -> str:
 
 
 def decode_access_token(token: str) -> dict | None:
-    """Devuelve los claims si el token es válido; None si está vencido, alterado o mal formado."""
+    """Devuelve los claims si el token es válido y es de acceso; None si está vencido, alterado, mal formado
+    o es un refresh token (dura días: solo sirve para POST /refresh)."""
     try:
-        return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        claims = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        # Los de acceso emitidos antes de este cambio no traen "type"
+        return claims if claims.get("type", "access") == "access" else None
     except JWTError:
         return None
 

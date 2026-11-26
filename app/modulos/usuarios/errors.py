@@ -1,7 +1,8 @@
 # Errores del módulo Usuarios: los mensajes, las funciones que los lanzan y los ejemplos que muestra /docs.
 from app.core.docs import respuesta_error
-from app.core.errors import error_400, error_404, error_422
-from app.modulos.comun.validadores import MSG_LETRAS_Y_NUMEROS, MSG_NUMERO, MSG_SOLO_NUMEROS, MSG_TELEFONO_LARGO
+from app.core.errors import error_400, error_403, error_404, error_422
+from app.modulos.empresas.errors import MSG_ID_NO_ACTIVA, MSG_ID_NO_EXISTE, MSG_ID_OBLIGATORIO
+from app.modulos.usuarios.schemas import MSG_BOOLEANO, MSG_DOCUMENTO, MSG_NUMERO, MSG_SOLO_NUMEROS, MSG_TELEFONO_LARGO
 
 # ===== MENSAJES =====
 
@@ -11,8 +12,11 @@ MSG_DESACTIVARSE = "No puede desactivar su propio usuario"
 MSG_PERMISOS_NO_EXISTEN = "Uno o más permisos no existen"
 MSG_ELIMINARSE = "No puede eliminar su propio usuario"
 MSG_TIENE_FACTURAS = "No se puede eliminar: el usuario tiene facturas asociadas"
+MSG_TIENE_BODEGAS = "No se puede eliminar: el usuario tiene bodegas asignadas"
+MSG_SIN_PERMISO = "No tiene permiso para esta acción"
 MSG_CORREO_DUPLICADO = "Ya existe un usuario con ese correo"
 MSG_ROL_NO_EXISTE = "El rol indicado no existe"
+MSG_ROL_INACTIVO = "El rol indicado no está activo"
 MSG_DOCUMENTO_DUPLICADO = "Ya existe un usuario con ese documento"
 
 
@@ -28,6 +32,10 @@ def correo_duplicado():
 
 def rol_no_existe():
     return error_400(MSG_ROL_NO_EXISTE)
+
+
+def rol_inactivo():
+    return error_400(MSG_ROL_INACTIVO)
 
 
 def permiso_no_encontrado():
@@ -54,9 +62,18 @@ def tiene_facturas():
     return error_400(MSG_TIENE_FACTURAS)
 
 
-def documento_invalido(mensaje: str):
-    """422 del número de documento (mismo formato que los 422 de FastAPI)."""
-    return error_422("numero_documento", mensaje)
+def tiene_bodegas():
+    return error_400(MSG_TIENE_BODEGAS)
+
+
+def rol_no_permitido():
+    """403: una empresa solo puede crear y tener bodegueros."""
+    return error_403(MSG_SIN_PERMISO)
+
+
+def rol_obligatorio():
+    """422 cuando falta rol_id (solo lo puede omitir una empresa: se le asigna bodeguero)."""
+    return error_422("rol_id", "es obligatorio")
 
 
 # ===== EJEMPLOS DE ERROR PARA /docs =====
@@ -81,10 +98,12 @@ DOC_422_LISTAR = respuesta_error(
     rol_id_invalido="rol_id: tiene un formato inválido",
 )
 DOC_400_CREAR = respuesta_error(
-    "El correo o el documento ya están registrados, o el rol no existe",
+    "El correo o el documento ya están registrados, el rol no existe o la empresa no está activa",
     correo_duplicado=MSG_CORREO_DUPLICADO,
     documento_duplicado=MSG_DOCUMENTO_DUPLICADO,
     rol_inexistente=MSG_ROL_NO_EXISTE,
+    rol_inactivo=MSG_ROL_INACTIVO,
+    empresa_no_activa=MSG_ID_NO_ACTIVA,
 )
 DOC_422_CREAR = respuesta_error(
     "El cuerpo no cumple las validaciones",
@@ -93,9 +112,11 @@ DOC_422_CREAR = respuesta_error(
     contrasena_corta="contrasena: es demasiado corto",
     contrasena_larga="contrasena: es demasiado largo",
     rol_id_invalido=f"rol_id: {MSG_NUMERO}",
+    empresa_id_faltante=f"empresa_id: {MSG_ID_OBLIGATORIO}",
+    empresa_id_invalido=f"empresa_id: {MSG_NUMERO}",
+    empresa_id_inexistente=f"empresa_id: {MSG_ID_NO_EXISTE}",
     tipo_documento_invalido="tipo_documento: debe ser CC, NIT, CE o PA",
-    documento_con_letras=f"numero_documento: {MSG_SOLO_NUMEROS}",
-    pasaporte_con_simbolos=f"numero_documento: {MSG_LETRAS_Y_NUMEROS}",
+    documento_con_simbolos=f"numero_documento: {MSG_DOCUMENTO}",
     telefono_con_letras=f"telefono: {MSG_SOLO_NUMEROS}",
     telefono_largo=f"telefono: {MSG_TELEFONO_LARGO}",
 )
@@ -104,7 +125,9 @@ DOC_400_ACTUALIZAR = respuesta_error(
     correo_duplicado=MSG_CORREO_DUPLICADO,
     documento_duplicado=MSG_DOCUMENTO_DUPLICADO,
     rol_inexistente=MSG_ROL_NO_EXISTE,
+    rol_inactivo=MSG_ROL_INACTIVO,
     desactivarse=MSG_DESACTIVARSE,
+    empresa_no_activa=MSG_ID_NO_ACTIVA,
 )
 DOC_422_ACTUALIZAR = respuesta_error(
     "El id o el cuerpo no cumplen las validaciones",
@@ -112,9 +135,10 @@ DOC_422_ACTUALIZAR = respuesta_error(
     correo_invalido="correo: formato de correo inválido",
     contrasena_corta="contrasena: es demasiado corto",
     rol_id_invalido=f"rol_id: {MSG_NUMERO}",
+    empresa_id_faltante=f"empresa_id: {MSG_ID_OBLIGATORIO}",
+    empresa_id_inexistente=f"empresa_id: {MSG_ID_NO_EXISTE}",
     tipo_documento_invalido="tipo_documento: debe ser CC, NIT, CE o PA",
-    documento_con_letras=f"numero_documento: {MSG_SOLO_NUMEROS}",
-    pasaporte_con_simbolos=f"numero_documento: {MSG_LETRAS_Y_NUMEROS}",
+    documento_con_simbolos=f"numero_documento: {MSG_DOCUMENTO}",
     telefono_con_letras=f"telefono: {MSG_SOLO_NUMEROS}",
     telefono_largo=f"telefono: {MSG_TELEFONO_LARGO}",
     estado_invalido="estado: tiene un formato inválido",
@@ -131,4 +155,11 @@ DOC_400_ELIMINAR = respuesta_error(
     "Intento de eliminar el propio usuario",
     eliminarse=MSG_ELIMINARSE,
     con_facturas=MSG_TIENE_FACTURAS,
+    con_bodegas=MSG_TIENE_BODEGAS,
+)
+DOC_422_ESTADO = respuesta_error(
+    "El id o el cuerpo no cumplen las validaciones",
+    id_invalido="usuario_id: tiene un formato inválido",
+    estado_faltante="estado: es obligatorio",
+    estado_texto=f"estado: {MSG_BOOLEANO}",
 )

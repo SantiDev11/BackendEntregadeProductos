@@ -2,6 +2,8 @@
 # Cada tipo pertenece a una bodega: el admin maneja todos; cualquier otro usuario solo los de sus bodegas.
 from sqlalchemy.orm import Session
 
+from app.core.alcance import alcance_de
+from app.modulos.bodegas.models import Bodega
 from app.modulos.tipos import errors, queries
 from app.modulos.tipos.models import Tipo
 from app.modulos.usuarios.models import Usuario
@@ -13,7 +15,7 @@ def es_admin(usuario: Usuario) -> bool:
 
 def bodegas_permitidas(db: Session, usuario: Usuario) -> list[int] | None:
     """None si puede ver todas (admin); si no, los ids de sus bodegas."""
-    return None if es_admin(usuario) else queries.ids_bodegas_del_usuario(db, usuario.id)
+    return None if es_admin(usuario) else queries.ids_bodegas(db, alcance_de(usuario))
 
 
 def get_tipo_or_404(db: Session, tipo_id: int, usuario: Usuario) -> Tipo:
@@ -21,7 +23,8 @@ def get_tipo_or_404(db: Session, tipo_id: int, usuario: Usuario) -> Tipo:
     tipo = queries.obtener(db, tipo_id)
     if tipo is None:
         raise errors.tipo_no_encontrado()
-    if not es_admin(usuario) and tipo.bodega_id not in queries.ids_bodegas_del_usuario(db, usuario.id):
+    alcance = alcance_de(usuario)
+    if not alcance.incluye(tipo) or (not alcance.es_admin and tipo.bodega_id not in queries.ids_bodegas(db, alcance)):
         raise errors.tipo_ajeno()
     return tipo
 
@@ -35,7 +38,7 @@ def bodega_para_nuevo_tipo(db: Session, usuario: Usuario, bodega_id: int | None)
             raise errors.bodega_invalida()
         return bodega_id
 
-    propias = queries.ids_bodegas_del_usuario(db, usuario.id)
+    propias = queries.ids_bodegas(db, alcance_de(usuario))
     if not propias:
         raise errors.sin_bodega()
     if len(propias) == 1:
@@ -47,10 +50,12 @@ def bodega_para_nuevo_tipo(db: Session, usuario: Usuario, bodega_id: int | None)
     return bodega_id
 
 
-def validate_bodega_existe(db: Session, bodega_id: int) -> None:
-    """Lanza 400 si la bodega no existe (para cuando el admin mueve un tipo)."""
-    if queries.obtener_bodega(db, bodega_id) is None:
+def validate_bodega_existe(db: Session, bodega_id: int) -> Bodega:
+    """Devuelve la bodega o lanza 400 si no existe (para cuando el admin mueve un tipo)."""
+    bodega = queries.obtener_bodega(db, bodega_id)
+    if bodega is None:
         raise errors.bodega_invalida()
+    return bodega
 
 
 def validate_unique_tipo_name(db: Session, nombre: str, bodega_id: int | None, excluir_id: int | None = None) -> None:

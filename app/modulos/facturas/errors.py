@@ -1,7 +1,7 @@
 # Errores del módulo Facturas: los mensajes, las funciones que los lanzan y los ejemplos que muestra /docs.
 from app.core.docs import respuesta_error
 from app.core.errors import error_422, error_400, error_403, error_404
-from app.modulos.comun.validadores import MSG_NUMERO
+from app.modulos.facturas.schemas import MSG_MOTIVO_CORTO, MSG_MOTIVO_FALTA, MSG_MOTIVO_LARGO, MSG_NUMERO
 
 # ===== MENSAJES =====
 
@@ -12,6 +12,7 @@ MSG_CLIENTE = "El cliente indicado no existe o no es un cliente activo"
 MSG_BODEGA = "La bodega indicada no existe, está inactiva o no le pertenece"
 MSG_TIPOS = "Uno o más tipos no existen"
 MSG_TIPOS_BODEGA = "Uno o más tipos no pertenecen a la bodega de la factura"
+MSG_TIPOS_INACTIVOS = "Uno o más tipos están inactivos"
 
 
 # ===== FUNCIONES QUE LANZAN EL ERROR (uso: raise errors.factura_no_encontrada()) =====
@@ -42,6 +43,10 @@ def tipos_no_existen():
 
 def tipos_de_otra_bodega():
     return error_400(MSG_TIPOS_BODEGA)
+
+
+def tipos_inactivos():
+    return error_400(MSG_TIPOS_INACTIVOS)
 
 
 def estado_filtro_invalido():
@@ -77,7 +82,7 @@ DOC_422_LISTAR_CLIENTES_PARA_FACTURAR = respuesta_error(
     page_minimo="page: debe ser mayor o igual a 1",
 )
 DOC_400_CREAR = respuesta_error("Cliente, bodega o tipos inválidos", cliente=MSG_CLIENTE, bodega=MSG_BODEGA, tipos=MSG_TIPOS,
-                             tipos_otra_bodega=MSG_TIPOS_BODEGA)
+                             tipos_otra_bodega=MSG_TIPOS_BODEGA, tipos_inactivos=MSG_TIPOS_INACTIVOS)
 DOC_422_CREAR = respuesta_error(
     "El cuerpo no cumple las validaciones",
     faltantes="cliente_id: es obligatorio; bodega_id: es obligatorio; forma_pago: es obligatorio; "
@@ -92,7 +97,7 @@ DOC_422_CREAR = respuesta_error(
 )
 DOC_400_ACTUALIZAR = respuesta_error("Estado inválido, o cliente, bodega o tipos inválidos",
     estado_invalido=MSG_ESTADO_INVALIDO, cliente=MSG_CLIENTE, bodega=MSG_BODEGA, tipos=MSG_TIPOS,
-tipos_otra_bodega=MSG_TIPOS_BODEGA)
+tipos_otra_bodega=MSG_TIPOS_BODEGA, tipos_inactivos=MSG_TIPOS_INACTIVOS)
 DOC_422_ACTUALIZAR = respuesta_error(
     "El id o el cuerpo no cumplen las validaciones",
     id_invalido="factura_id: tiene un formato inválido",
@@ -107,4 +112,9 @@ DOC_422_ACEPTAR = respuesta_error(
     base64="firma: no es un base64 válido",
     grande="firma: es demasiado grande (máximo 500 KB)",
 )
-DOC_422_RECHAZAR = respuesta_error("Falta el motivo", faltante="motivo: es obligatorio", vacio="motivo: no puede estar vacío")
+DOC_422_RECHAZAR = respuesta_error(
+    "El motivo no es válido",
+    faltante=f"motivo_rechazo: {MSG_MOTIVO_FALTA}",
+    corto=f"motivo_rechazo: {MSG_MOTIVO_CORTO}",
+    largo=f"motivo_rechazo: {MSG_MOTIVO_LARGO}",
+)

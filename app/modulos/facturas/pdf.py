@@ -66,6 +66,11 @@ def _par(pdf: FPDF, etiqueta: str, valor, ancho_etiqueta=40):
     pdf.multi_cell(0, 5, _t(valor), new_x="LMARGIN", new_y="NEXT")
 
 
+def _unir(*partes) -> str:
+    """Une con " | " solo las partes que tienen algo."""
+    return "  |  ".join(p for p in partes if p)
+
+
 def generar_pdf(f: dict) -> bytes:
     """Devuelve los bytes del PDF de la factura."""
     pdf = _PdfFactura(f)
@@ -79,14 +84,17 @@ def generar_pdf(f: dict) -> bytes:
     pdf.set_font("Helvetica", "B", 12)
     pdf.cell(0, 7, _t("FACTURA DE VENTA"), align="R", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 8.5)
-    pdf.cell(120, 4.5, _t(f"NIT {emisor.get('nit')}-{emisor.get('dv')}  |  {emisor.get('regimen') or ''}"))
+    nit = "-".join(filter(None, [emisor.get("nit"), emisor.get("dv")]))
+    pdf.cell(120, 4.5, _t(_unir(f"NIT {nit}" if nit else None, emisor.get("regimen"))))
     pdf.set_font("Helvetica", "B", 12)
     pdf.cell(0, 4.5, _t(f["numero"]), align="R", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 8.5)
-    pdf.cell(120, 4.5, _t(f"{emisor.get('direccion') or ''} - {emisor.get('ciudad') or ''}, {emisor.get('departamento') or ''}"))
+    lugar = ", ".join(filter(None, [emisor.get("ciudad"), emisor.get("departamento")]))
+    pdf.cell(120, 4.5, _t(" - ".join(filter(None, [emisor.get("direccion"), lugar]))))
     pdf.cell(0, 4.5, _t(f"Estado: {f['estado'].upper()}"), align="R", new_x="LMARGIN", new_y="NEXT")
-    pdf.cell(0, 4.5, _t(f"Tel. {emisor.get('telefono') or ''}  |  {emisor.get('correo') or ''}  |  "
-                        f"Resp. fiscal: {emisor.get('responsabilidad_fiscal') or ''}"), new_x="LMARGIN", new_y="NEXT")
+    responsabilidad = emisor.get("responsabilidad_fiscal")
+    pdf.cell(0, 4.5, _t(_unir(f"Tel. {emisor['telefono']}" if emisor.get("telefono") else None, emisor.get("correo"),
+                              f"Resp. fiscal: {responsabilidad}" if responsabilidad else None)), new_x="LMARGIN", new_y="NEXT")
     pdf.ln(3)
 
     # Datos generales

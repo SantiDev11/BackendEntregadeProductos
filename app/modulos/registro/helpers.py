@@ -4,13 +4,14 @@ from fastapi.routing import APIRoute
 from sqlalchemy.orm import Session
 
 from app.modulos.empresas.helpers import validate_unique_nit
+from app.modulos.empresas.schemas import EmpresaCreate
 from app.modulos.registro.errors import MSG_TIPO
-from app.modulos.registro.schemas import RegistroCliente, RegistroEmpresa
+from app.modulos.registro.schemas import RegistroCliente
 from app.modulos.roles.models import Rol
 from app.modulos.usuarios.helpers import validate_unique_usuario_documento, validate_unique_usuario_email
 
 
-def validate_repetidos(db: Session, datos: RegistroCliente | RegistroEmpresa) -> None:
+def validate_repetidos(db: Session, datos: RegistroCliente | EmpresaCreate) -> None:
     """Lanza 400 si el correo, el documento (cliente) o el NIT (empresa) ya están registrados."""
     validate_unique_usuario_email(db, datos.correo)
     if isinstance(datos, RegistroCliente):

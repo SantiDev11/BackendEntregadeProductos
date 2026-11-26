@@ -1,22 +1,23 @@
 # Lógica de cada endpoint de Bodegas. El router solo recibe la petición y llama a estas funciones.
-# El usuario que no es admin solo ve y maneja las bodegas que le pertenecen.
+# Alcance: admin todas; empresa las de su empresa; los demás solo las que les pertenecen (ver core/alcance.py).
 from sqlalchemy.orm import Session
 
-from app.modulos.bodegas import queries
-from app.modulos.bodegas.helpers import (es_admin, get_bodega_or_404, validate_bodeguero, validate_se_puede_eliminar,
+from app.core.alcance import Alcance, alcance_de
+from app.modulos.bodegas import errors, queries
+from app.modulos.bodegas.helpers import (get_bodega_or_404, validate_bodeguero, validate_se_puede_eliminar,
                                          validate_unique_bodega_codigo, validate_unique_bodega_name)
 from app.modulos.bodegas.models import Bodega
-from app.modulos.bodegas.schemas import BodegaCreate, BodegaOut, BodegaPaginado, BodegaUpdate
+from app.modulos.bodegas.schemas import BodegaCreate, BodegaEstadoUpdate, BodegaOut, BodegaPaginado, BodegaUpdate
 from app.modulos.usuarios.models import Usuario
 
 
-def listar(db: Session, usuario: Usuario, q: str | None, estado: bool | None, bodeguero_id: int | None,
+def listar(db: Session, alcance: Alcance, q: str | None, estado: bool | None, bodeguero_id: int | None,
            page: int, limit: int) -> BodegaPaginado:
     """Lista las bodegas con búsqueda, filtros y paginación. El bodeguero solo ve las suyas."""
-    if not es_admin(usuario):
-        bodeguero_id = usuario.id  # el bodeguero siempre ve solo sus bodegas
+    if not alcance.ve_toda_la_empresa:
+        bodeguero_id = alcance.usuario.id  # el bodeguero siempre ve solo sus bodegas
 
-    total, bodegas = queries.listar(db, q=q, estado=estado, bodeguero_id=bodeguero_id, page=page, limit=limit)
+    total, bodegas = queries.listar(db, alcance, q=q, estado=estado, bodeguero_id=bodeguero_id, page=page, limit=limit)
     return BodegaPaginado(
         data=[BodegaOut.model_validate(b) for b in bodegas],
         total=total,
@@ -31,18 +32,22 @@ def obtener(db: Session, bodega_id: int, usuario: Usuario) -> Bodega:
 
 
 def crear(db: Session, datos: BodegaCreate, usuario: Usuario) -> Bodega:
-    """Crea una bodega nueva, define su dueño y registra quién la creó."""
+    """Crea una bodega nueva, define su empresa y su dueño, y registra quién la creó."""
+    alcance = alcance_de(usuario)
+    empresa_id = alcance.empresa_para_crear(db, datos.empresa_id)  # admin: la del body; los demás: la del token
     validate_unique_bodega_name(db, datos.nombre)
 
     valores = datos.model_dump()
     valores["codigo"] = valores["codigo"].upper()  # el código siempre se guarda en mayúsculas
     validate_unique_bodega_codigo(db, valores["codigo"])
 
-    if es_admin(usuario):
-        if valores.get("bodeguero_id") is not None:
-            validate_bodeguero(db, valores["bodeguero_id"])
-    else:
+    valores["empresa_id"] = empresa_id  # nunca el del body sin validar
+    if not alcance.ve_toda_la_empresa:
         valores["bodeguero_id"] = usuario.id  # el bodeguero siempre queda como dueño de lo que crea
+    elif valores.get("bodeguero_id") is not None:
+        bodeguero = validate_bodeguero(db, valores["bodeguero_id"], alcance)
+        if bodeguero.empresa_id != empresa_id:
+            raise errors.bodeguero_de_otra_empresa()
 
     bodega = Bodega(**valores, creado_por=usuario.id, actualizado_por=usuario.id)
     db.add(bodega)
@@ -57,11 +62,14 @@ def actualizar(db: Session, bodega_id: int, datos: BodegaUpdate, usuario: Usuari
     bodega = get_bodega_or_404(db, bodega_id, usuario)
     cambios = datos.model_dump(exclude_none=True)  # null = no se cambia
 
-    # Solo el admin puede cambiar el dueño; si lo envía un bodeguero, se ignora
-    if not es_admin(usuario):
+    # Solo el admin o la empresa pueden cambiar el dueño; si lo envía un bodeguero, se ignora
+    alcance = alcance_de(usuario)
+    if not alcance.ve_toda_la_empresa:
         cambios.pop("bodeguero_id", None)
     elif "bodeguero_id" in cambios:
-        validate_bodeguero(db, cambios["bodeguero_id"])
+        bodeguero = validate_bodeguero(db, cambios["bodeguero_id"], alcance)
+        if bodeguero.empresa_id != bodega.empresa_id:
+            raise errors.bodeguero_de_otra_empresa()
 
     if "nombre" in cambios:
         validate_unique_bodega_name(db, cambios["nombre"], excluir_id=bodega_id)
@@ -77,6 +85,11 @@ def actualizar(db: Session, bodega_id: int, datos: BodegaUpdate, usuario: Usuari
     db.commit()
     db.refresh(bodega)
     return bodega
+
+
+def cambiar_estado(db: Session, bodega_id: int, datos: BodegaEstadoUpdate, usuario: Usuario) -> Bodega:
+    """Activa o desactiva la bodega, con el mismo alcance que al editarla (la empresa, solo las suyas)."""
+    return actualizar(db, bodega_id, BodegaUpdate(estado=datos.estado), usuario)
 
 
 def eliminar(db: Session, bodega_id: int, usuario: Usuario) -> None:

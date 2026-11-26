@@ -9,4 +9,4 @@ from app.modulos.bodegas.models import Bodega  # noqa: F401
 from app.modulos.permisos.models import Permiso  # noqa: F401
 from app.modulos.roles.models import Rol, rol_permiso  # noqa: F401
 from app.modulos.usuarios.models import Usuario, usuario_permisos  # noqa: F401
-from app.modulos.facturas.models import Orden, OrdenDetalle, ESTADOS_ORDEN  # noqa: F401
+from app.modulos.facturas.models import ConsecutivoFactura, Orden, OrdenDetalle, ESTADOS_ORDEN  # noqa: F401

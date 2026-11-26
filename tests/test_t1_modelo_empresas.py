@@ -11,6 +11,7 @@ from app.modulos import ESTADOS_EMPRESA, Bodega, Empresa, Orden, Rol, Tipo, Usua
 TABLAS = ("usuarios", "bodegas", "tipos", "ordenes")
 MIGRACION = RAIZ / "migraciones" / "005_empresas.sql"
 BACKFILL = RAIZ / "migraciones" / "006_backfill_empresas.py"
+NUMERACION = RAIZ / "migraciones" / "008_numeracion_por_empresa.sql"
 
 _spec = importlib.util.spec_from_file_location("backfill", BACKFILL)
 backfill = importlib.util.module_from_spec(_spec)
@@ -33,8 +34,9 @@ def estructura() -> dict:
 
 # ===== MIGRACIÓN 005 =====
 
-def test_migracion_deja_la_misma_estructura_que_los_modelos(base_antes_de_005):
+def test_las_migraciones_dejan_la_misma_estructura_que_los_modelos(base_antes_de_005):
     correr_sql(MIGRACION)
+    correr_sql(NUMERACION)  # T10
     migrada = estructura()
     vaciar_base()
     Base.metadata.create_all(bind=engine)
@@ -175,7 +177,7 @@ def test_backfill_no_toca_fechas_ni_datos_de_la_factura(datos_viejos, db):
     backfill.rellenar(db); db.commit()
     despues = foto()
     for f in antes + despues:
-        f.pop("empresa_id")
+        f.pop("empresa_id"); f.pop("serie")  # serie se calcula con empresa_id (T10)
     assert antes == despues
 
 

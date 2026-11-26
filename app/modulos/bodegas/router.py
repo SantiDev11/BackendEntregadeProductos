@@ -5,12 +5,13 @@ from fastapi import APIRouter, Depends, Path, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
+from app.core.alcance import Alcance, filtro_empresa
 from app.core.deps import get_current_user, require_permiso
 from app.core.docs import ERROR_401, ERROR_403
 from app.modulos.bodegas import services
-from app.modulos.bodegas.errors import (DOC_400_ELIMINAR, DOC_400_GUARDAR, DOC_404, DOC_422_CREAR, DOC_422_EDITAR,
-                                        DOC_422_ID, DOC_422_LISTAR)
-from app.modulos.bodegas.schemas import BodegaCreate, BodegaUpdate, BodegaOut, BodegaPaginado
+from app.modulos.bodegas.errors import (DOC_400_ACTUALIZAR, DOC_400_CREAR, DOC_400_ELIMINAR, DOC_404, DOC_422_CREAR,
+                                        DOC_422_EDITAR, DOC_422_ESTADO, DOC_422_ID, DOC_422_LISTAR)
+from app.modulos.bodegas.schemas import BodegaCreate, BodegaEstadoUpdate, BodegaUpdate, BodegaOut, BodegaPaginado
 from app.modulos.usuarios.models import Usuario
 
 # Permiso que exige cada acción (los permisos se leen de la BD en cada petición; el rol admin siempre pasa)
@@ -38,7 +39,7 @@ Devuelve las bodegas en páginas, con búsqueda por nombre y filtros.
 
 **Permiso requerido:** `bodegas_view`. El rol `admin` siempre tiene acceso. Requiere `Authorization: Bearer <token>`.
 
-**Alcance:** el `admin` ve y maneja todas las bodegas; cualquier otro usuario solo las suyas (`bodeguero_id` = su id). Una bodega ajena le responde 404.
+**Alcance:** el `admin` ve y maneja todas las bodegas (en el listado puede filtrar con `empresa_id`); una `empresa`, las de su empresa; cualquier otro usuario, solo las suyas (`bodeguero_id` = su id). Una bodega ajena le responde 404.
 
 **Parámetros (todos opcionales):**
 - `q`: busca bodegas cuyo nombre **contenga** el texto, sin distinguir mayúsculas (`central` encuentra "Bodega Central").
@@ -69,9 +70,10 @@ def listar_bodegas(
     limit: int = Query(10, ge=1, le=100, description="Elementos por página. Por defecto 10, máximo 100."),
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(puede_ver),
+    alcance: Alcance = Depends(filtro_empresa),
 ):
     """Lista las bodegas con búsqueda, filtros y paginación. El bodeguero solo ve las suyas."""
-    return services.listar(db, usuario, q=q, estado=estado, bodeguero_id=bodeguero_id, page=page, limit=limit)
+    return services.listar(db, alcance, q=q, estado=estado, bodeguero_id=bodeguero_id, page=page, limit=limit)
 
 
 @router.get(
@@ -83,7 +85,7 @@ Devuelve una bodega por su id, con su dueño, su estado y sus datos de auditorí
 
 **Permiso requerido:** `bodegas_view`. El rol `admin` siempre tiene acceso. Requiere `Authorization: Bearer <token>`.
 
-**Alcance:** el `admin` ve y maneja todas las bodegas; cualquier otro usuario solo las suyas (`bodeguero_id` = su id). Una bodega ajena le responde 404.
+**Alcance:** el `admin` ve y maneja todas las bodegas (en el listado puede filtrar con `empresa_id`); una `empresa`, las de su empresa; cualquier otro usuario, solo las suyas (`bodeguero_id` = su id). Una bodega ajena le responde 404.
 
 **Parámetros:**
 - `bodega_id` (en la ruta): id de la bodega.
@@ -115,19 +117,24 @@ Crea una bodega nueva.
 **Permiso requerido:** `bodegas_create`. El rol `admin` siempre tiene acceso. Requiere `Authorization: Bearer <token>`.
 
 **Cuerpo (todos obligatorios, salvo `bodeguero_id` y `estado`):**
+- `empresa_id` (**obligatorio para el admin**): id numérico de una empresa activa (ver `GET /empresas?estado=activa`).
 - `nombre`: de 1 a 100 caracteres.
 - `codigo`: código interno, hasta 30 caracteres.
 - `direccion`: hasta 200 caracteres.
 - `ciudad` y `departamento`: hasta 100 caracteres.
 - `telefono`: **solo números**, de 7 a 15 dígitos. `correo`: formato de correo válido, hasta 100.
-- Datos de quién recibe: `recibe_nombre` (100), `recibe_documento` (**solo números**, hasta 30), `recibe_cargo` (100)
+- Datos de quién recibe: `recibe_nombre` (100), `recibe_documento` (**letras y números**, hasta 30), `recibe_cargo` (100)
   y `recibe_telefono` (**solo números**, de 7 a 15 dígitos).
-- `bodeguero_id` (opcional, **solo admin**): dueño de la bodega. Debe ser un número: `2`, no `"2"`.
+- `bodeguero_id` (opcional, **solo admin o empresa**): dueño de la bodega. Debe ser un número: `2`, no `"2"`.
 - `estado` (opcional): por defecto `true` (activa).
 
 **Reglas:**
 - **Dueño:** si la crea un bodeguero, el dueño es él mismo y `bodeguero_id` se ignora.
-  Si la crea el admin, puede indicar `bodeguero_id` (un usuario con rol bodeguero) o dejarla sin dueño.
+  Si la crea el admin o una empresa, puede indicar `bodeguero_id` (un usuario con rol bodeguero) o dejarla sin dueño.
+  El bodeguero debe ser de la empresa de la bodega; si no, da 400.
+- **Empresa:** si la crea el admin y `empresa_id` falta, no es un número o no existe, da 422;
+  si la empresa existe pero no está `activa`, da 400.
+  Si la crea cualquier otro usuario, queda en la empresa **del token** y el `empresa_id` del cuerpo se **ignora**.
 - El nombre debe ser único **sin distinguir mayúsculas**: si ya existe "Bodega Central", "bodega central" da 400.
 - El `codigo` se guarda en **mayúsculas** y también debe ser único: "bod-01" choca con "BOD-01".
 - Se quitan los espacios al inicio y al final. Un campo que falte, o que llegue vacío (`""` o solo espacios), da 422.
@@ -138,7 +145,7 @@ Crea una bodega nueva.
 """,
     response_description="La bodega creada, con su id, su dueño y datos de auditoría",
     responses={
-        400: DOC_400_GUARDAR,
+        400: DOC_400_CREAR,
         401: ERROR_401,
         403: ERROR_403,
         422: DOC_422_CREAR,
@@ -164,7 +171,7 @@ Actualiza una bodega existente. **Solo cambia los campos que se envían.**
 
 **Permiso requerido:** `bodegas_edit`. El rol `admin` siempre tiene acceso. Requiere `Authorization: Bearer <token>`.
 
-**Alcance:** el `admin` ve y maneja todas las bodegas; cualquier otro usuario solo las suyas (`bodeguero_id` = su id). Una bodega ajena le responde 404.
+**Alcance:** el `admin` ve y maneja todas las bodegas (en el listado puede filtrar con `empresa_id`); una `empresa`, las de su empresa; cualquier otro usuario, solo las suyas (`bodeguero_id` = su id). Una bodega ajena le responde 404.
 
 **Parámetros:**
 - `bodega_id` (en la ruta): id de la bodega a editar.
@@ -173,7 +180,7 @@ Actualiza una bodega existente. **Solo cambia los campos que se envían.**
 - `nombre`: nuevo nombre, de 1 a 100 caracteres.
 - `codigo`, `direccion`, `ciudad`, `departamento`, `telefono`, `correo`: datos de la bodega.
 - `recibe_nombre`, `recibe_documento`, `recibe_cargo`, `recibe_telefono`: datos de quién recibe.
-- `telefono`, `recibe_telefono` (7 a 15 dígitos) y `recibe_documento` solo aceptan **números**.
+- `telefono` y `recibe_telefono` solo aceptan **números** (7 a 15 dígitos); `recibe_documento`, letras y números.
 - `bodeguero_id`: **solo admin**, para asignar o cambiar el dueño. Si lo envía un bodeguero, se ignora.
 - `estado`: `true` para activar, `false` para desactivar.
 
@@ -190,7 +197,7 @@ Actualiza una bodega existente. **Solo cambia los campos que se envían.**
 """,
     response_description="La bodega con los cambios aplicados",
     responses={
-        400: DOC_400_GUARDAR,
+        400: DOC_400_ACTUALIZAR,
         401: ERROR_401,
         403: ERROR_403,
         404: DOC_404,
@@ -207,6 +214,44 @@ def actualizar_bodega(
     return services.actualizar(db, bodega_id, datos, usuario)
 
 
+@router.patch(
+    "/{bodega_id}/estado",
+    response_model=BodegaOut,
+    summary="Activar o desactivar la bodega",
+    description=f"""
+Activa o desactiva la bodega sin tocar sus demás datos. Es lo mismo que enviar solo `estado` al `PUT`.
+
+**Permiso requerido:** `bodegas_edit`. El rol `admin` siempre tiene acceso. Requiere `Authorization: Bearer <token>`.
+
+**Cuerpo:** `{{"estado": false}}` para desactivar o `{{"estado": true}}` para activar.
+- `estado` es **obligatorio** y debe ser `true` o `false` del JSON: `"true"`, `1` o `null` dan 422 `estado: debe ser true o false`.
+- Repetir el mismo estado no es error.
+
+**Reglas:**
+- En una bodega inactiva **no se pueden crear facturas** (400). Sus facturas y tipos no cambian.
+- Una `empresa` solo activa o desactiva **sus bodegas**; un bodeguero, las suyas. Otra bodega responde 404.
+- Guarda en `actualizado_por` quién hizo el cambio.
+
+**Devuelve:** la bodega con su nuevo estado.
+""",
+    response_description="La bodega con su nuevo estado",
+    responses={
+        401: ERROR_401,
+        403: ERROR_403,
+        404: DOC_404,
+        422: DOC_422_ESTADO,
+    },
+)
+def cambiar_estado_bodega(
+    datos: BodegaEstadoUpdate,
+    bodega_id: int = Path(description="Id de la bodega.", examples=[1]),
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(puede_editar),
+):
+    """Activa o desactiva la bodega, con las mismas reglas que al editarlo."""
+    return services.cambiar_estado(db, bodega_id, datos, usuario)
+
+
 # ===== ELIMINAR (DELETE) =====
 
 @router.delete(
@@ -218,7 +263,7 @@ Elimina una bodega de forma **definitiva** (no es un borrado lógico).
 
 **Permiso requerido:** `bodegas_delete`. El rol `admin` siempre tiene acceso. Requiere `Authorization: Bearer <token>`.
 
-**Alcance:** el `admin` ve y maneja todas las bodegas; cualquier otro usuario solo las suyas (`bodeguero_id` = su id). Una bodega ajena le responde 404.
+**Alcance:** el `admin` ve y maneja todas las bodegas (en el listado puede filtrar con `empresa_id`); una `empresa`, las de su empresa; cualquier otro usuario, solo las suyas (`bodeguero_id` = su id). Una bodega ajena le responde 404.
 
 **Parámetros:**
 - `bodega_id` (en la ruta): id de la bodega a eliminar.

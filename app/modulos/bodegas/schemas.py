@@ -1,12 +1,57 @@
 # Esquemas de Bodega (entrada, salida y listado paginado)
 from datetime import datetime
-from typing import Annotated, List, Optional
+from typing import Annotated, Any, List, Optional
 
-from pydantic import (AfterValidator, BaseModel, ConfigDict, EmailStr, Field, StringConstraints, TypeAdapter,
-                      ValidationError, field_validator)
+from pydantic import (AfterValidator, BaseModel, BeforeValidator, ConfigDict, EmailStr, Field, StringConstraints, TypeAdapter,
+                      ValidationError, WithJsonSchema, field_validator)
 from pydantic_core import PydanticCustomError
 
-from app.modulos.comun.validadores import DocumentoObligatorio, Entero, TelefonoObligatorio
+MSG_SOLO_NUMEROS = "solo puede tener números"
+MSG_TELEFONO_LARGO = "debe tener entre 7 y 15 dígitos"
+MSG_DOCUMENTO = "solo puede tener letras y números"
+MSG_NUMERO = "debe ser un número"
+
+
+def _exigir_numero(valor):
+    """Solo deja pasar números del JSON (10). Rechaza textos ("10"), true/false y listas.
+    null sigue su curso normal: lo permite o lo rechaza el propio campo."""
+    if valor is not None and (isinstance(valor, bool) or not isinstance(valor, (int, float))):
+        raise PydanticCustomError("no_es_numero", MSG_NUMERO)
+    return valor
+
+
+# Id enviado como número en el JSON: 3, no "3"
+Entero = Annotated[int, BeforeValidator(_exigir_numero)]
+
+# empresa_id: el schema lo acepta como venga, porque solo se tiene en cuenta si quien lo envía es admin
+# (ahí lo valida validate_empresa_id); a los demás se les ignora, aunque llegue mal escrito
+EmpresaIdDelBody = Annotated[Any, WithJsonSchema({"anyOf": [{"type": "integer"}, {"type": "null"}]})]
+
+
+def _validar_telefono(valor: str) -> str:
+    """Solo dígitos (0-9), de 7 a 15."""
+    if not (valor.isascii() and valor.isdigit()):
+        raise PydanticCustomError("solo_numeros", MSG_SOLO_NUMEROS)
+    if not 7 <= len(valor) <= 15:
+        raise PydanticCustomError("telefono_largo", MSG_TELEFONO_LARGO)
+    return valor
+
+
+def _validar_documento(valor: str) -> str:
+    """Letras (sin tildes ni ñ) y números: los documentos extranjeros pueden llevar letras. Sin espacios ni símbolos."""
+    if not (valor.isascii() and valor.isalnum()):
+        raise PydanticCustomError("documento", MSG_DOCUMENTO)
+    return valor
+
+
+# Teléfono: se guarda como texto (puede empezar en 0), pero solo con dígitos. No puede quedar vacío
+TelefonoObligatorio = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1), AfterValidator(_validar_telefono),
+                                WithJsonSchema({"type": "string", "pattern": "^[0-9]{7,15}$"})]
+
+# Documento: texto con letras y números, hasta 30. No puede quedar vacío
+DocumentoObligatorio = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=30),
+                                 AfterValidator(_validar_documento),
+                                 WithJsonSchema({"type": "string", "pattern": "^[A-Za-z0-9]{1,30}$"})]
 
 # Todos los datos de la bodega son obligatorios: se quitan los espacios al inicio y al final
 # y luego no pueden quedar vacíos (mínimo 1 carácter) ni pasarse del largo máximo.
@@ -53,8 +98,8 @@ NO_VACIO = 'Si no se envía o llega en `null`, no se cambia. **No puede quedar v
 
 
 class BodegaCreate(BaseModel):
-    """Datos para crear una bodega. **Todos los datos son obligatorios** (salvo `bodeguero_id` y `estado`)."""
-    model_config = ConfigDict(json_schema_extra={"examples": [{**EJEMPLO_DATOS, "estado": True}]})
+    """Datos para crear una bodega. **Todos los datos son obligatorios** (salvo `bodeguero_id` y `estado`; `empresa_id`, solo para el admin)."""
+    model_config = ConfigDict(json_schema_extra={"examples": [{**EJEMPLO_DATOS, "empresa_id": 1, "estado": True}]})
 
     nombre: NombreBodega = Field(
         description="**Obligatorio.** Nombre de la bodega, de 1 a 100 caracteres. Debe ser único (sin distinguir mayúsculas).",
@@ -76,17 +121,23 @@ class BodegaCreate(BaseModel):
                                  examples=["central@entrega.com"])
     recibe_nombre: Texto100 = Field(description="**Obligatorio.** Nombre de la persona que recibe la mercancía, hasta 100 caracteres.",
                                     examples=["Ana Ruiz"])
-    recibe_documento: DocumentoObligatorio = Field(description="**Obligatorio.** Documento de quien recibe: **solo números**, "
-                                                               "hasta 30 dígitos.",
+    recibe_documento: DocumentoObligatorio = Field(description="**Obligatorio.** Documento de quien recibe: **letras y números**, "
+                                                               "hasta 30 caracteres.",
                                                    examples=["52123456"])
     recibe_cargo: Texto100 = Field(description="**Obligatorio.** Cargo de quien recibe, hasta 100 caracteres.",
                                    examples=["Jefe de bodega"])
     recibe_telefono: TelefonoObligatorio = Field(description="**Obligatorio.** Teléfono de quien recibe: **solo números**, "
                                                              "de 7 a 15 dígitos.",
                                                  examples=["3001234567"])
+    empresa_id: EmpresaIdDelBody = Field(
+        default=None,
+        description="**Obligatorio para el admin.** Id numérico de una empresa activa (ver `GET /empresas?estado=activa`). "
+                    "Si no la crea el admin se **ignora**: la bodega queda en la empresa del token.",
+        examples=[1],
+    )
     bodeguero_id: Optional[Entero] = Field(
         default=None,
-        description="Opcional, **solo para admin**. Id del bodeguero dueño de la bodega. "
+        description="Opcional, **solo para admin o empresa**. Id del bodeguero dueño; debe ser de la empresa de la bodega. "
                     "Si la crea un bodeguero, el dueño es él mismo y este campo se ignora.",
         examples=[2],
     )
@@ -122,7 +173,7 @@ class BodegaUpdate(BaseModel):
     recibe_nombre: Optional[Texto100] = Field(default=None, description="Nombre de quien recibe. " + NO_VACIO,
                                               examples=["Ana Ruiz"])
     recibe_documento: Optional[DocumentoObligatorio] = Field(default=None,
-                                                             description="Documento de quien recibe: **solo números**. " + NO_VACIO,
+                                                             description="Documento de quien recibe: **letras y números**. " + NO_VACIO,
                                                              examples=["52123456"])
     recibe_cargo: Optional[Texto100] = Field(default=None, description="Cargo de quien recibe. " + NO_VACIO,
                                              examples=["Jefe de bodega"])
@@ -154,6 +205,8 @@ class BodegaOut(BaseModel):
                 **EJEMPLO_DATOS,
                 "bodeguero_id": 2,
                 "bodeguero_nombre": "Bodeguero Prueba",
+                "empresa_id": 1,
+                "empresa_nombre": "Distribuidora Andina S.A.S.",
                 "estado": True,
                 "creado_en": "2026-11-18T10:30:00",
                 "actualizado_en": "2026-11-18T10:30:00",
@@ -178,6 +231,11 @@ class BodegaOut(BaseModel):
     bodeguero_id: Optional[int] = Field(default=None, description="Id del bodeguero dueño, o `null` si no tiene.", examples=[2])
     bodeguero_nombre: Optional[str] = Field(default=None, validation_alias="bodeguero",
                                             description="Nombre del bodeguero dueño, o `null`.", examples=["Bodeguero Prueba"])
+    empresa_id: Optional[int] = Field(default=None, description="Empresa a la que pertenece la bodega, o `null` si no tiene.",
+                                      examples=[1])
+    empresa_nombre: Optional[str] = Field(default=None, validation_alias="empresa",
+                                          description="Razón social de su empresa, o `null` si no tiene.",
+                                          examples=["Distribuidora Andina S.A.S."])
     estado: bool = Field(description="`true` = activa, `false` = inactiva.", examples=[True])
     creado_en: datetime = Field(description="Fecha y hora de creación (la pone el servidor).",
                                 examples=["2026-11-18T10:30:00"])
@@ -189,6 +247,12 @@ class BodegaOut(BaseModel):
     actualizado_por: Optional[int] = Field(default=None,
                                            description="Id del usuario que la modificó por última vez (lo pone el servidor).",
                                            examples=[1])
+
+    @field_validator("empresa_nombre", mode="before")
+    @classmethod
+    def nombre_de_la_empresa(cls, valor):
+        """El modelo entrega el objeto Empresa (relación "empresa"); aquí se convierte en su razón social."""
+        return valor.razon_social if hasattr(valor, "razon_social") else valor
 
     @field_validator("bodeguero_nombre", mode="before")
     @classmethod
@@ -204,3 +268,26 @@ class BodegaPaginado(BaseModel):
                        examples=[1])
     page: int = Field(description="Página devuelta (empieza en 1).", examples=[1])
     limit: int = Field(description="Cantidad máxima de elementos por página.", examples=[10])
+
+
+# ===== ACTIVAR / DESACTIVAR (PATCH /{id}/estado) =====
+
+MSG_BOOLEANO = "debe ser true o false"
+
+
+def _exigir_booleano(valor):
+    """Solo deja pasar true o false del JSON. Rechaza "true", 1, "si" y null."""
+    if not isinstance(valor, bool):
+        raise PydanticCustomError("no_es_booleano", MSG_BOOLEANO)
+    return valor
+
+
+Booleano = Annotated[bool, BeforeValidator(_exigir_booleano)]
+
+
+class BodegaEstadoUpdate(BaseModel):
+    """Activa o desactiva la bodega."""
+    model_config = ConfigDict(json_schema_extra={"examples": [{"estado": False}, {"estado": True}]})
+
+    estado: Booleano = Field(description="**Obligatorio.** `true` activa y `false` desactiva la bodega. Inactiva no se pueden crear facturas en ella.",
+                             examples=[False])

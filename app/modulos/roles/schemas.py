@@ -2,9 +2,22 @@
 from datetime import datetime
 from typing import Annotated, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, StringConstraints
+from pydantic_core import PydanticCustomError
 
-from app.modulos.comun.validadores import Entero
+MSG_NUMERO = "debe ser un número"
+
+
+def _exigir_numero(valor):
+    """Solo deja pasar números del JSON (10). Rechaza textos ("10"), true/false y listas.
+    null sigue su curso normal: lo permite o lo rechaza el propio campo."""
+    if valor is not None and (isinstance(valor, bool) or not isinstance(valor, (int, float))):
+        raise PydanticCustomError("no_es_numero", MSG_NUMERO)
+    return valor
+
+
+# Id enviado como número en el JSON: 3, no "3"
+Entero = Annotated[int, BeforeValidator(_exigir_numero)]
 
 # Nombre: se quitan los espacios al inicio y al final y luego debe tener de 1 a 50 caracteres
 NombreRol = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=50)]
@@ -134,3 +147,26 @@ class RolPaginado(BaseModel):
                        examples=[3])
     page: int = Field(description="Página devuelta (empieza en 1).", examples=[1])
     limit: int = Field(description="Cantidad máxima de elementos por página.", examples=[10])
+
+
+# ===== ACTIVAR / DESACTIVAR (PATCH /{id}/estado) =====
+
+MSG_BOOLEANO = "debe ser true o false"
+
+
+def _exigir_booleano(valor):
+    """Solo deja pasar true o false del JSON. Rechaza "true", 1, "si" y null."""
+    if not isinstance(valor, bool):
+        raise PydanticCustomError("no_es_booleano", MSG_BOOLEANO)
+    return valor
+
+
+Booleano = Annotated[bool, BeforeValidator(_exigir_booleano)]
+
+
+class RolEstadoUpdate(BaseModel):
+    """Activa o desactiva el rol."""
+    model_config = ConfigDict(json_schema_extra={"examples": [{"estado": False}, {"estado": True}]})
+
+    estado: Booleano = Field(description="**Obligatorio.** `true` activa y `false` desactiva el rol. Inactivo no se puede asignar a usuarios.",
+                             examples=[False])

@@ -108,7 +108,7 @@ COMUNES = [("correo", "no-es-correo", CORREO), ("correo", "a" * 60 + "@" + "b" *
 INVALIDOS = {
     "cliente": (CLIENTE, COMUNES + [
         ("nombre", "  ", VACIO), ("nombre", "x" * 101, DEMASIADO), ("tipo_documento", "XX", "debe ser CC, NIT, CE o PA"),
-        ("tipo_documento", "", VACIO), ("numero_documento", "10AB", DIGITOS), ("numero_documento", "", VACIO),
+        ("tipo_documento", "", VACIO), ("numero_documento", "10-AB", "solo puede tener letras y números"), ("numero_documento", "", VACIO),
         ("numero_documento", "1" * 31, DEMASIADO)]),
     "empresa": (EMPRESA, COMUNES + [
         ("razon_social", "", VACIO), ("razon_social", "x" * 101, DEMASIADO), ("representante", "x" * 101, DEMASIADO),

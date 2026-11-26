@@ -1,7 +1,9 @@
 # Consultas a la base de datos del módulo Usuarios
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
+from app.core.alcance import Alcance
+from app.modulos.bodegas.models import Bodega
 from app.modulos.facturas.models import Orden
 from app.modulos.permisos.models import Permiso
 from app.modulos.roles.models import Rol
@@ -16,6 +18,11 @@ def obtener(db: Session, usuario_id: int) -> Usuario | None:
 def obtener_rol(db: Session, rol_id: int) -> Rol | None:
     """Rol por id, o None si no existe."""
     return db.get(Rol, rol_id)
+
+
+def rol_por_nombre(db: Session, nombre: str) -> Rol:
+    """Rol con ese nombre (los roles base existen siempre: los crea el seed)."""
+    return db.query(Rol).filter(Rol.nombre == nombre).one()
 
 
 def obtener_permiso(db: Session, permiso_id: int) -> Permiso | None:
@@ -39,10 +46,12 @@ def existe_documento(db: Session, numero_documento: str, excluir_id: int | None 
     return query.first() is not None
 
 
-def listar(db: Session, q: str | None, estado: bool | None, rol: str | None, rol_id: int | None,
+def listar(db: Session, alcance: Alcance, q: str | None, estado: bool | None, rol: str | None, rol_id: int | None,
            page: int, limit: int) -> tuple[int, list[Usuario]]:
     """Devuelve (total que cumple los filtros, usuarios de la página con rol y permisos), ordenados por id."""
-    query = db.query(Usuario)
+    query = db.query(Usuario).filter(*alcance.condiciones(Usuario.empresa_id))
+    if alcance.solo_bodegueros:
+        query = query.filter(Usuario.rol_id.in_(select(Rol.id).where(Rol.nombre == "bodeguero")))
     if rol:
         query = query.join(Usuario.rol).filter(func.lower(Rol.nombre) == rol.strip().lower())
     if q:
@@ -72,3 +81,8 @@ def permisos_por_ids(db: Session, ids: set[int]) -> list[Permiso]:
 def tiene_facturas(db: Session, usuario_id: int) -> bool:
     """True si el usuario aparece en alguna factura, como cliente o como emisor."""
     return db.query(Orden).filter(or_(Orden.cliente_id == usuario_id, Orden.bodeguero_id == usuario_id)).first() is not None
+
+
+def tiene_bodegas(db: Session, usuario_id: int) -> bool:
+    """True si el usuario es dueño de alguna bodega."""
+    return db.query(Bodega).filter(Bodega.bodeguero_id == usuario_id).first() is not None

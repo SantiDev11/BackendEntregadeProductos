@@ -5,13 +5,14 @@ from fastapi import APIRouter, Depends, Path, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
+from app.core.alcance import Alcance, filtro_empresa
 from app.core.deps import get_current_user, require_permiso
 from app.core.docs import ERROR_401
-from app.modulos.tipos.schemas import TipoCreate, TipoUpdate, TipoOut, TipoPaginado
+from app.modulos.tipos.schemas import TipoCreate, TipoEstadoUpdate, TipoUpdate, TipoOut, TipoPaginado
 from app.modulos.usuarios.models import Usuario
 from app.modulos.tipos import services
 from app.modulos.tipos.errors import (DOC_404, DOC_403_TIPO, DOC_422_ID, DOC_403_LISTAR, DOC_422_LISTAR, DOC_400_CREAR,
-                                      DOC_422_CREAR, DOC_400_ACTUALIZAR, DOC_422_ACTUALIZAR, DOC_400_ELIMINAR)
+                                      DOC_422_CREAR, DOC_400_ACTUALIZAR, DOC_422_ACTUALIZAR, DOC_400_ELIMINAR, DOC_422_ESTADO)
 
 # Permiso que exige cada acción (los permisos se leen de la BD en cada petición; el rol admin siempre pasa)
 puede_ver = require_permiso("tipos_view")
@@ -26,7 +27,8 @@ router = APIRouter(
     dependencies=[Depends(get_current_user)],
 )
 
-ALCANCE = ("**Alcance:** el `admin` maneja todos los tipos. Cualquier otro usuario solo los de **sus bodegas** "
+ALCANCE = ("**Alcance:** el `admin` maneja todos los tipos. Una `empresa`, los de las bodegas de su empresa. "
+           "Cualquier otro usuario solo los de **sus bodegas** "
            "(las que tienen `bodeguero_id` = su id).")
 
 
@@ -73,9 +75,10 @@ def listar_tipos(
     limit: int = Query(10, ge=1, le=100, description="Elementos por página. Por defecto 10, máximo 100."),
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(puede_ver),
+    alcance: Alcance = Depends(filtro_empresa),
 ):
     """Lista los tipos con búsqueda, filtros y paginación. Quien no es admin solo ve los de sus bodegas."""
-    return services.listar_tipos(q, estado, bodega_id, page, limit, db, usuario)
+    return services.listar_tipos(q, estado, bodega_id, page, limit, db, alcance)
 
 
 @router.get(
@@ -199,6 +202,46 @@ def actualizar_tipo(
     """Actualiza solo los campos enviados (los que lleguen en null se ignoran)
     y registra quién hizo el cambio."""
     return services.actualizar_tipo(datos, tipo_id, db, usuario)
+
+
+@router.patch(
+    "/{tipo_id}/estado",
+    response_model=TipoOut,
+    summary="Activar o desactivar el tipo",
+    description=f"""
+Activa o desactiva el tipo sin tocar sus demás datos. Es lo mismo que enviar solo `estado` al `PUT`.
+
+**Permiso requerido:** `tipos_edit`. El rol `admin` siempre tiene acceso. Requiere `Authorization: Bearer <token>`.
+
+**Cuerpo:** `{{"estado": false}}` para desactivar o `{{"estado": true}}` para activar.
+- `estado` es **obligatorio** y debe ser `true` o `false` del JSON: `"true"`, `1` o `null` dan 422 `estado: debe ser true o false`.
+- Repetir el mismo estado no es error.
+
+**Reglas:**
+- Sirve, por ejemplo, para un producto **sin stock**: se desactiva y se vuelve a activar cuando llega más.
+- Un tipo inactivo **no se puede agregar a una factura** (400 `Uno o más tipos están inactivos`). Las facturas que ya
+  lo tienen no cambian, y al editarlas puede quedarse en sus líneas.
+- {ALCANCE} Un tipo de otra bodega responde 403.
+- Guarda en `actualizado_por` quién hizo el cambio.
+
+**Devuelve:** el tipo con su nuevo estado.
+""",
+    response_description="El tipo con su nuevo estado",
+    responses={
+        401: ERROR_401,
+        403: DOC_403_TIPO,
+        404: DOC_404,
+        422: DOC_422_ESTADO,
+    },
+)
+def cambiar_estado_tipo(
+    datos: TipoEstadoUpdate,
+    tipo_id: int = Path(description="Id de el tipo.", examples=[1]),
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(puede_editar),
+):
+    """Activa o desactiva el tipo, con las mismas reglas que al editarlo."""
+    return services.cambiar_estado_tipo(datos, tipo_id, db, usuario)
 
 
 # ===== ELIMINAR (DELETE) =====

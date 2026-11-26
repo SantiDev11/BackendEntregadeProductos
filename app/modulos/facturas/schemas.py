@@ -7,12 +7,33 @@ from decimal import Decimal
 from typing import Annotated, List, Optional
 
 from pydantic import (AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, PlainSerializer,
-                      StringConstraints, ValidationInfo, field_validator)
+                      StringConstraints, ValidationInfo, WithJsonSchema, field_validator)
 from pydantic_core import PydanticCustomError
 
-from app.modulos.comun.validadores import Entero, SoloNumero, numero_en_docs
-
 # ===== TIPOS REUTILIZABLES =====
+
+MSG_NUMERO = "debe ser un número"
+
+
+def _exigir_numero(valor):
+    """Solo deja pasar números del JSON (10 o 10.5). Rechaza textos ("10"), true/false y listas.
+    null sigue su curso normal: lo permite o lo rechaza el propio campo."""
+    if valor is not None and (isinstance(valor, bool) or not isinstance(valor, (int, float, Decimal))):
+        raise PydanticCustomError("no_es_numero", MSG_NUMERO)
+    return valor
+
+
+# Va después de las demás reglas del número en Annotated, para que se ejecute ANTES que ellas
+SoloNumero = BeforeValidator(_exigir_numero)
+
+# Id enviado como número en el JSON: 3, no "3"
+Entero = Annotated[int, SoloNumero]
+
+
+def numero_en_docs(**limites) -> WithJsonSchema:
+    """En /docs el campo sale como número y nada más (Decimal por defecto sale como "número o texto")."""
+    return WithJsonSchema({"type": "number", **limites})
+
 
 # Dinero: se calcula con Decimal, pero en el JSON sale como número (no como texto)
 Dinero = Annotated[Decimal, PlainSerializer(float, return_type=float, when_used="json")]
@@ -78,7 +99,31 @@ Descripcion = Annotated[str, StringConstraints(strip_whitespace=True, min_length
 UnidadMedida = Annotated[str, StringConstraints(strip_whitespace=True, to_upper=True, min_length=1, max_length=20)]
 Observaciones = Annotated[str, StringConstraints(strip_whitespace=True, max_length=1000)]
 Firma = Annotated[str, AfterValidator(_validar_firma)]
-Motivo = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
+
+
+MSG_MOTIVO_FALTA = "es obligatorio"
+MSG_MOTIVO_CORTO = "debe tener al menos 10 caracteres"
+MSG_MOTIVO_LARGO = "es demasiado largo"
+
+
+def _exigir_motivo(valor):
+    """null es lo mismo que no enviarlo."""
+    if valor is None:
+        raise PydanticCustomError("motivo", MSG_MOTIVO_FALTA)
+    return valor
+
+
+def _validar_motivo(valor: str) -> str:
+    if len(valor) < 10:
+        raise PydanticCustomError("motivo", MSG_MOTIVO_CORTO)
+    if len(valor) > 255:
+        raise PydanticCustomError("motivo", MSG_MOTIVO_LARGO)
+    return valor
+
+
+# Motivo de rechazo: se quitan los espacios al inicio y al final y luego debe tener de 10 a 255 caracteres
+MotivoRechazo = Annotated[str, BeforeValidator(_exigir_motivo), StringConstraints(strip_whitespace=True),
+                          AfterValidator(_validar_motivo), WithJsonSchema({"type": "string", "minLength": 10, "maxLength": 255})]
 
 
 # ===== ENTRADA =====
@@ -177,10 +222,10 @@ class FirmaIn(BaseModel):
 
 class RechazoIn(BaseModel):
     """Motivo del cliente al rechazar la factura."""
-    model_config = ConfigDict(json_schema_extra={"examples": [{"motivo": "Llegaron 2 cajas menos de arroz"}]})
+    model_config = ConfigDict(json_schema_extra={"examples": [{"motivo_rechazo": "Llegaron 2 cajas menos de arroz"}]})
 
-    motivo: Motivo = Field(description="**Obligatorio.** Por qué se rechaza, de 1 a 255 caracteres.",
-                           examples=["Llegaron 2 cajas menos de arroz"])
+    motivo_rechazo: MotivoRechazo = Field(description="**Obligatorio.** Por qué se rechaza, de 10 a 255 caracteres.",
+                                          examples=["Llegaron 2 cajas menos de arroz"])
 
 
 # ===== SALIDA =====
@@ -270,10 +315,17 @@ class TrazabilidadOut(BaseModel):
     fecha_recepcion: Optional[datetime] = Field(default=None, description="Cuándo el bodeguero recibió la factura firmada.")
 
 
+EMPRESA_ID = "Id de la empresa que factura, o `null` si la factura no tiene empresa."
+EMPRESA_NOMBRE = "Razón social actual de la empresa que factura, o `null` si la factura no tiene empresa."
+
+
 class FacturaOut(BaseModel):
     """Factura completa."""
     id: int = Field(examples=[1])
-    numero: str = Field(description="Número de la factura: prefijo + consecutivo.", examples=["FE-0001"])
+    numero: str = Field(description="Número de la factura: prefijo + consecutivo **de su empresa**. Se puede repetir entre "
+                                    "empresas: la clave es `id`.", examples=["FE-0001"])
+    empresa_id: Optional[int] = Field(default=None, description=EMPRESA_ID, examples=[1])
+    empresa_nombre: Optional[str] = Field(default=None, description=EMPRESA_NOMBRE, examples=["Distribuidora Andina S.A.S."])
     estado: str = Field(description="Estado de la factura: `emitida`, `entregada`, `firmada`, `rechazada` o `recibida`.",
                         examples=["emitida"])
     creado_por_id: int = Field(description="Id del usuario que creó la factura (el mismo `trazabilidad.bodeguero_id`).",
@@ -300,7 +352,10 @@ class FacturaOut(BaseModel):
 class FacturaResumen(BaseModel):
     """Una fila del listado de facturas."""
     id: int = Field(examples=[1])
-    numero: str = Field(examples=["FE-0001"])
+    numero: str = Field(description="Número dentro de su empresa. Se puede repetir entre empresas: la clave es `id`.",
+                        examples=["FE-0001"])
+    empresa_id: Optional[int] = Field(default=None, description=EMPRESA_ID, examples=[1])
+    empresa_nombre: Optional[str] = Field(default=None, description=EMPRESA_NOMBRE, examples=["Distribuidora Andina S.A.S."])
     estado: str = Field(examples=["emitida"])
     fecha_emision: datetime = Field(examples=["2026-11-18T10:30:00"])
     cliente_id: int = Field(examples=[3])
@@ -311,24 +366,6 @@ class FacturaResumen(BaseModel):
     creado_por_nombre: Optional[str] = Field(default=None, description="Nombre de quien creó la factura.",
                                              examples=["Bodeguero Prueba"])
     total: Dinero = Field(examples=[36750])
-
-
-class ClienteOpcion(BaseModel):
-    """Cliente disponible para facturar (solo los datos necesarios para elegirlo)."""
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int = Field(description="Id del usuario cliente (se envía como `cliente_id`).", examples=[3])
-    nombre: str = Field(examples=["Cliente Prueba"])
-    tipo_documento: Optional[str] = Field(default=None, examples=["CC"])
-    numero_documento: Optional[str] = Field(default=None, examples=["1020304050"])
-
-
-class ClientePaginado(BaseModel):
-    """Respuesta de GET /facturas/clientes: {data, total, page, limit}."""
-    data: List[ClienteOpcion] = Field(description="Clientes activos de la página, ordenados por nombre.")
-    total: int = Field(description="Cantidad total de clientes que cumplen la búsqueda.", examples=[1])
-    page: int = Field(description="Página devuelta (empieza en 1).", examples=[1])
-    limit: int = Field(description="Cantidad máxima de elementos por página.", examples=[10])
 
 
 class FacturaPaginado(BaseModel):

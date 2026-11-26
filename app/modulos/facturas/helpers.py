@@ -6,8 +6,10 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy.orm import Session
 
+from app.core.alcance import alcance_de
 from app.modulos.bodegas.models import Bodega
 from app.modulos.facturas import errors, queries
+from app.modulos.empresas.models import Empresa
 from app.modulos.facturas.emisor import EMISOR, PREFIJO_FACTURA, RESOLUCION, SOFTWARE
 from app.modulos.facturas.models import Orden, OrdenDetalle
 from app.modulos.usuarios.models import Usuario
@@ -75,9 +77,23 @@ def formatear_numero(consecutivo: int) -> str:
     return f"{PREFIJO_FACTURA}-{consecutivo:04d}"
 
 
-def datos_emisor() -> dict:
-    """Copia de los datos del emisor y de la resolución vigente (se guarda en la orden)."""
-    return {**EMISOR, "resolucion": dict(RESOLUCION)}
+def numerar(db: Session, orden: Orden, empresa_id: int | None) -> None:
+    """Le da a la orden el siguiente número de la empresa. Va de último, justo antes de guardar: bloquea el contador
+    de la empresa hasta el commit."""
+    consecutivo = queries.siguiente_consecutivo(db, empresa_id)
+    orden.prefijo, orden.consecutivo, orden.numero = PREFIJO_FACTURA, consecutivo, formatear_numero(consecutivo)
+
+
+def datos_emisor(empresa: Empresa | None) -> dict:
+    """Copia de los datos del emisor y de la resolución vigente, que se guarda en la orden al emitirla: si luego la empresa
+    cambia sus datos, la factura conserva los de ese momento.
+    - Factura de una empresa: los datos de la empresa. Lo que la empresa no registra (ciudad, régimen...) queda en null.
+    - Factura sin empresa (anterior a las empresas): el emisor por defecto de emisor.py."""
+    if empresa is None:
+        return {**EMISOR, "resolucion": dict(RESOLUCION)}
+    return {"nit": empresa.nit or "", "dv": empresa.dv or "", "razon_social": empresa.razon_social, "nombre_comercial": None,
+            "direccion": empresa.direccion, "ciudad": None, "departamento": None, "telefono": empresa.telefono,
+            "correo": empresa.correo, "regimen": None, "responsabilidad_fiscal": None, "resolucion": dict(RESOLUCION)}
 
 
 def datos_adquiriente(cliente: Usuario) -> dict:
@@ -149,6 +165,8 @@ def factura_salida(orden: Orden) -> dict:
     return {
         "id": orden.id,
         "numero": orden.numero,
+        "empresa_id": orden.empresa_id,
+        "empresa_nombre": orden.empresa.razon_social if orden.empresa else None,
         "estado": orden.estado_orden,
         "creado_por_id": orden.bodeguero_id,
         "creado_por_nombre": orden.bodeguero.nombre if orden.bodeguero else None,
@@ -195,6 +213,8 @@ def factura_resumen(orden: Orden) -> dict:
     return {
         "id": orden.id,
         "numero": orden.numero,
+        "empresa_id": orden.empresa_id,
+        "empresa_nombre": orden.empresa.razon_social if orden.empresa else None,
         "estado": orden.estado_orden,
         "fecha_emision": orden.fecha_emision,
         "cliente_id": orden.cliente_id,
@@ -217,22 +237,13 @@ def ahora() -> datetime:
     return datetime.now().replace(microsecond=0)  # MySQL DATETIME no guarda microsegundos
 
 
-def alcance_facturas(usuario: Usuario) -> str:
-    """Qué facturas puede ver el usuario:
-    - "todas": admin.
-    - "cliente": las que creó + las que tienen su cliente_id (sin las `emitida`).
-    - "creadas": cualquier otro (bodeguero...): solo las que creó."""
-    if usuario.rol.nombre == "admin":
-        return "todas"
-    return "cliente" if es_cliente(usuario) else "creadas"
-
-
 def puede_ver_factura(orden: Orden, usuario: Usuario) -> bool:
-    """La misma regla de queries.filtro_dueno, pero sobre una factura ya cargada."""
-    alcance = alcance_facturas(usuario)
-    if alcance == "todas" or orden.bodeguero_id == usuario.id:
-        return True
-    return alcance == "cliente" and orden.cliente_id == usuario.id and orden.estado_orden != "emitida"
+    """La misma regla de queries.condiciones_visibles, pero sobre una factura ya cargada."""
+    creada = orden.bodeguero_id == usuario.id
+    if es_cliente(usuario):
+        return creada or (orden.cliente_id == usuario.id and orden.estado_orden != "emitida")
+    alcance = alcance_de(usuario)
+    return alcance.incluye(orden) and (alcance.ve_toda_la_empresa or creada)
 
 
 def get_factura_or_404(db: Session, factura_id: int, usuario: Usuario) -> Orden:
@@ -271,16 +282,18 @@ def validate_cliente(db: Session, cliente_id: int) -> Usuario:
 
 
 def validate_bodega(db: Session, bodega_id: int, usuario: Usuario) -> Bodega:
-    """La bodega debe existir, estar activa y, si factura un bodeguero, ser suya."""
+    """La bodega debe existir, estar activa, ser de la empresa del usuario y, si factura un bodeguero, ser suya."""
     bodega = queries.obtener_bodega(db, bodega_id)
-    ajena = usuario.rol.nombre == "bodeguero" and bodega is not None and bodega.bodeguero_id != usuario.id
-    if bodega is None or not bodega.estado or ajena:
+    if bodega is None or not bodega.estado or not alcance_de(usuario).incluye(bodega):
+        raise errors.bodega_invalida()
+    if usuario.rol.nombre == "bodeguero" and bodega.bodeguero_id != usuario.id:
         raise errors.bodega_invalida()
     return bodega
 
 
-def validate_tipos(db: Session, lineas, bodega_id: int) -> None:
-    """Todos los tipo_id de las líneas deben existir y ser de la bodega de la factura (o no tener bodega)."""
+def validate_tipos(db: Session, lineas, bodega_id: int, ya_estaban: set[int] = frozenset()) -> None:
+    """Todos los tipo_id de las líneas deben existir y ser de la bodega de la factura (o no tener bodega).
+    Un tipo inactivo (por ejemplo, sin stock) no se puede agregar; si ya estaba en la factura, puede quedarse."""
     ids = {linea.tipo_id for linea in lineas if linea.tipo_id is not None}
     if not ids:
         return
@@ -289,6 +302,8 @@ def validate_tipos(db: Session, lineas, bodega_id: int) -> None:
         raise errors.tipos_no_existen()
     if any(t.bodega_id not in (None, bodega_id) for t in tipos):
         raise errors.tipos_de_otra_bodega()
+    if any(not t.estado and t.id not in ya_estaban for t in tipos):
+        raise errors.tipos_inactivos()
 
 
 def sellar(orden: Orden) -> None:

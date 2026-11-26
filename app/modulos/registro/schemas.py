@@ -1,19 +1,32 @@
 # Esquemas del registro público. `tipo` decide cuál se usa: cliente o empresa.
 # El rol, el estado y los permisos los pone el servidor: si llegan en el cuerpo, se ignoran.
-import re
 from typing import Annotated, Literal, Union
 
-from pydantic import (AfterValidator, BaseModel, ConfigDict, EmailStr, Field, StringConstraints, ValidationInfo,
-                      field_validator)
+from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field, StringConstraints, WithJsonSchema
 from pydantic_core import PydanticCustomError
 
-from app.modulos.comun.validadores import TelefonoObligatorio, error_documento
+from app.modulos.empresas.schemas import EmpresaCreate
 from app.modulos.usuarios.schemas import Contrasena, NombreUsuario, TipoDocumento
 
-MSG_NIT = "debe tener el formato 900123456-1"
-Texto100 = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
-Texto200 = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
-Documento = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=30)]
+MSG_SOLO_NUMEROS = "solo puede tener números"
+MSG_TELEFONO_LARGO = "debe tener entre 7 y 15 dígitos"
+MSG_DOCUMENTO = "solo puede tener letras y números"
+
+
+def _validar_telefono(valor: str) -> str:
+    """Solo dígitos (0-9), de 7 a 15."""
+    if not (valor.isascii() and valor.isdigit()):
+        raise PydanticCustomError("solo_numeros", MSG_SOLO_NUMEROS)
+    if not 7 <= len(valor) <= 15:
+        raise PydanticCustomError("telefono_largo", MSG_TELEFONO_LARGO)
+    return valor
+
+
+def _validar_documento(valor: str) -> str:
+    """Letras (sin tildes ni ñ) y números: los documentos extranjeros pueden llevar letras. Sin espacios ni símbolos."""
+    if not (valor.isascii() and valor.isalnum()):
+        raise PydanticCustomError("documento", MSG_DOCUMENTO)
+    return valor
 
 
 def _correo_hasta_100(valor: str) -> str:
@@ -28,15 +41,16 @@ def _no_vacio(valor: str) -> str:
     return valor
 
 
-def _validar_nit(valor: str) -> str:
-    """900123456-1: de 5 a 15 dígitos, guion y dígito de verificación."""
-    if not re.fullmatch(r"[0-9]{5,15}-[0-9]", valor):
-        raise PydanticCustomError("nit", MSG_NIT)
-    return valor
+# Teléfono: se guarda como texto (puede empezar en 0), pero solo con dígitos. No puede quedar vacío
+TelefonoObligatorio = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1), AfterValidator(_validar_telefono),
+                                WithJsonSchema({"type": "string", "pattern": "^[0-9]{7,15}$"})]
 
+# Documento: texto con letras y números, hasta 30. No puede quedar vacío
+DocumentoObligatorio = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=30),
+                                 AfterValidator(_validar_documento),
+                                 WithJsonSchema({"type": "string", "pattern": "^[A-Za-z0-9]{1,30}$"})]
 
 Correo = Annotated[EmailStr, AfterValidator(_correo_hasta_100)]
-Nit = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1), AfterValidator(_validar_nit)]
 
 
 class RegistroCliente(BaseModel):
@@ -49,40 +63,23 @@ class RegistroCliente(BaseModel):
     nombre: NombreUsuario = Field(description="**Obligatorio.** De 1 a 100 caracteres.", examples=["Juan Pérez"])
     tipo_documento: Annotated[TipoDocumento, AfterValidator(_no_vacio)] = Field(
         description="**Obligatorio.** `CC`, `NIT`, `CE` o `PA`.", examples=["CC"])
-    numero_documento: Documento = Field(
-        description="**Obligatorio.** Solo números, hasta 30 (con `PA` también letras). Debe ser único.", examples=["1020304050"])
+    numero_documento: DocumentoObligatorio = Field(
+        description="**Obligatorio.** Letras y números, hasta 30. Debe ser único (sin distinguir mayúsculas).", examples=["1020304050"])
     telefono: TelefonoObligatorio = Field(description="**Obligatorio.** Solo números, de 7 a 15 dígitos.", examples=["3001234567"])
     correo: Correo = Field(description="**Obligatorio.** Formato de correo, hasta 100 caracteres. Debe ser único.",
                            examples=["juan@cliente.com"])
     contrasena: Contrasena = Field(description="**Obligatorio.** De 8 a 72 caracteres.", examples=["Cliente123*"])
 
-    @field_validator("numero_documento", mode="after")
-    @classmethod
-    def documento_segun_tipo(cls, valor, info: ValidationInfo):
-        """Solo números (o letras y números si es pasaporte). Si el tipo vino mal, ya hay un error por el tipo."""
-        mensaje = error_documento(info.data["tipo_documento"], valor) if "tipo_documento" in info.data else None
-        if mensaje:
-            raise PydanticCustomError("documento", mensaje)
-        return valor
 
-
-class RegistroEmpresa(BaseModel):
-    """Registro de una empresa: queda pendiente hasta que un admin la apruebe. También crea su usuario."""
+class RegistroEmpresa(EmpresaCreate):
+    """Registro de una empresa: los mismos datos que pide el admin al crearla, pero queda pendiente hasta que la aprueben.
+    También crea su usuario."""
     model_config = ConfigDict(json_schema_extra={"examples": [{
         "tipo": "empresa", "razon_social": "Distribuidora Andina S.A.S.", "nit": "900123456-1", "telefono": "3001234567",
         "direccion": "Calle 10 # 20-30", "representante": "Ana Torres", "correo": "empresa@entrega.com",
         "contrasena": "Empresa123*"}]})
 
     tipo: Literal["empresa"]
-    razon_social: Texto100 = Field(description="**Obligatorio.** De 1 a 100 caracteres.", examples=["Distribuidora Andina S.A.S."])
-    nit: Nit = Field(description="**Obligatorio.** Con dígito de verificación. Único sin contar ese dígito.", examples=["900123456-1"])
-    telefono: TelefonoObligatorio = Field(description="**Obligatorio.** Solo números, de 7 a 15 dígitos.", examples=["3001234567"])
-    direccion: Texto200 = Field(description="**Obligatorio.** De 1 a 200 caracteres.", examples=["Calle 10 # 20-30"])
-    representante: Texto100 = Field(description="**Obligatorio.** Representante legal; será el nombre del usuario.",
-                                    examples=["Ana Torres"])
-    correo: Correo = Field(description="**Obligatorio.** Con este correo entra el usuario de la empresa. Debe ser único.",
-                           examples=["empresa@entrega.com"])
-    contrasena: Contrasena = Field(description="**Obligatorio.** De 8 a 72 caracteres.", examples=["Empresa123*"])
 
 
 Registro = Annotated[Union[RegistroCliente, RegistroEmpresa], Field(discriminator="tipo")]

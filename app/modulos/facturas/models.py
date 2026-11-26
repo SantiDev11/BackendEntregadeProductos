@@ -1,5 +1,5 @@
 # Órdenes de entrega (la orden ES la factura) y sus líneas de detalle
-from sqlalchemy import (JSON, Column, Date, DateTime, ForeignKey, Integer, Numeric, String, Text,
+from sqlalchemy import (JSON, Column, Computed, Date, DateTime, ForeignKey, Integer, Numeric, String, Text,
                         UniqueConstraint, func, text)
 from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import relationship
@@ -14,16 +14,21 @@ ESTADOS_ORDEN = ["emitida", "entregada", "firmada", "rechazada", "recibida"]
 class Orden(EstadoAuditoriaMixin, Base):
     __tablename__ = "ordenes"
     __table_args__ = (
-        # el mismo consecutivo no se puede repetir dentro de un prefijo
-        UniqueConstraint("prefijo", "consecutivo", name="uq_ordenes_prefijo_consecutivo"),
+        # Serie de numeración: la empresa, o 0 si no tiene. La calcula MySQL y solo la usa el índice único (que no compara los
+        # NULL entre sí, y las facturas sin empresa tampoco se pueden repetir)
+        Column("serie", Integer, Computed("coalesce(empresa_id, 0)", persisted=False)),
+        # el mismo consecutivo no se puede repetir dentro de una empresa y un prefijo (dos empresas sí pueden tener FE-0001)
+        UniqueConstraint("serie", "prefijo", "consecutivo", name="uq_ordenes_serie_consecutivo"),
     )
+    # serie no es un atributo de Orden: ninguna consulta la pide (ni count()), así que leer no depende de la migración 008
+    __mapper_args__ = {"exclude_properties": ["serie"]}
 
     id = Column(Integer, primary_key=True, index=True)
 
     # Numeración y fechas
     prefijo = Column(String(10), nullable=False)  # prefijo de la factura, ej. "FE"
-    consecutivo = Column(Integer, nullable=False)  # número consecutivo dentro del prefijo
-    numero = Column(String(30), nullable=False, unique=True)  # número completo, ej. "FE-0001"
+    consecutivo = Column(Integer, nullable=False)  # número consecutivo dentro de la empresa y el prefijo
+    numero = Column(String(30), nullable=False)  # número completo, ej. "FE-0001" (se puede repetir entre empresas)
     fecha_emision = Column(DateTime, nullable=False, server_default=func.now())  # cuándo se emitió
     fecha_vencimiento = Column(Date, nullable=True)  # fecha límite de pago (solo si es a crédito)
 
@@ -75,6 +80,16 @@ class Orden(EstadoAuditoriaMixin, Base):
         cascade="all, delete-orphan",  # al borrar la orden se borran sus líneas
         order_by="OrdenDetalle.linea",
     )
+
+
+class ConsecutivoFactura(Base):
+    """Último consecutivo entregado en cada serie. Su fila se bloquea al numerar una factura, hasta que esta se guarda:
+    así dos facturas simultáneas de la misma empresa nunca reciben el mismo número."""
+    __tablename__ = "consecutivos_factura"
+
+    serie = Column(Integer, primary_key=True, autoincrement=False)  # id de la empresa (0 = facturas sin empresa)
+    prefijo = Column(String(10), primary_key=True)
+    ultimo = Column(Integer, nullable=False)
 
 
 class OrdenDetalle(EstadoAuditoriaMixin, Base):

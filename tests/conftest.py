@@ -17,8 +17,13 @@ _url = _url.set(database=f"{_url.database}_test")
 os.environ["DATABASE_URL"] = _url.render_as_string(hide_password=False)
 sys.path.insert(0, str(RAIZ))
 
-with pymysql.connect(host=_url.host, port=_url.port or 3306, user=_url.username, password=_url.password or "") as _con:
-    _con.cursor().execute(f"CREATE DATABASE IF NOT EXISTS `{_url.database}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+_con = pymysql.connect(host=_url.host, port=_url.port or 3306, user=_url.username, password=_url.password or "")
+with _con.cursor() as _cursor:
+    # Solo una corrida a la vez: dos se borrarían las tablas entre sí. El candado se suelta al cerrar esta conexión (fin del proceso)
+    _cursor.execute("SELECT GET_LOCK(%s, 0)", (_url.database,))
+    if _cursor.fetchone()[0] != 1:
+        pytest.exit(f"Ya hay otra corrida de pruebas usando la base {_url.database}. Espera a que termine.", returncode=4)
+    _cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{_url.database}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
 
 import app.modulos  # noqa: E402,F401  (registra todos los modelos)
 from app.config.database import Base, SessionLocal, engine  # noqa: E402
