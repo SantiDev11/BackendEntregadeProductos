@@ -118,6 +118,8 @@ def generar_pdf(f: dict) -> bytes:
     _titulo(pdf, "Bodega de despacho")
     _par(pdf, "Bodega:", f"{bodega.get('nombre')} {('(' + bodega['codigo'] + ')') if bodega.get('codigo') else ''}")
     _par(pdf, "Dirección:", f"{bodega.get('direccion') or '-'} {('- ' + bodega['ciudad']) if bodega.get('ciudad') else ''}")
+    if bodega.get("correo"):
+        _par(pdf, "Correo:", bodega["correo"])
     if bodega.get("recibe_nombre"):
         _par(pdf, "Recibe:", f"{bodega['recibe_nombre']} {bodega.get('recibe_documento') or ''} "
                              f"{('- ' + bodega['recibe_cargo']) if bodega.get('recibe_cargo') else ''}")

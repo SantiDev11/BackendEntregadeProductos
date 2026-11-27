@@ -1,6 +1,7 @@
 # Errores del registro público: los mensajes y los ejemplos que muestra /docs.
 # Los de repetidos se reutilizan de Usuarios y Empresas.
 from app.core.docs import respuesta_error
+from app.core.errors import error_400
 from app.modulos.empresas.errors import MSG_NIT_DUPLICADO
 from app.modulos.empresas.schemas import MSG_NIT
 from app.modulos.registro.schemas import MSG_DOCUMENTO, MSG_SOLO_NUMEROS, MSG_TELEFONO_LARGO
@@ -9,6 +10,14 @@ from app.modulos.usuarios.errors import MSG_CORREO_DUPLICADO, MSG_DOCUMENTO_DUPL
 # ===== MENSAJES =====
 
 MSG_TIPO = "debe ser cliente o empresa"
+
+
+MSG_ROL_INACTIVO = "No se pueden crear usuarios con el rol {}: está inactivo"
+
+
+def rol_inactivo(rol: str):
+    """400: el admin desactivó ese rol (por ejemplo, para cerrar el registro de clientes o de empresas)."""
+    return error_400(MSG_ROL_INACTIVO.format(rol))
 
 
 # ===== EJEMPLOS DE ERROR PARA /docs =====

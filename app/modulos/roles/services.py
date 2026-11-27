@@ -46,7 +46,12 @@ def actualizar_rol(datos: RolUpdate, rol_id: int, db: Session, usuario: Usuario)
         validate_puede_renombrar(rol, cambios["nombre"], usuario)
         validate_unique_rol_name(db, cambios["nombre"], excluir_id=rol_id)
     if "estado" in cambios:
-        validate_puede_desactivar(rol, cambios["estado"])
+        validate_puede_desactivar(rol, cambios["estado"], usuario)
+        # Cascada reversible: desactivarlo desactiva a sus usuarios; reactivarlo devuelve solo a esos
+        if cambios["estado"]:
+            queries.reactivar_usuarios(db, rol_id)
+        else:
+            queries.desactivar_usuarios(db, rol_id)
 
     for campo, valor in cambios.items():
         setattr(rol, campo, valor)

@@ -63,6 +63,6 @@ def tiene_facturas(db: Session, bodega_id: int) -> bool:
     return db.query(Orden).filter(Orden.bodega_id == bodega_id).first() is not None
 
 
-def tiene_tipos(db: Session, bodega_id: int) -> bool:
-    """True si la bodega tiene tipos en su catálogo."""
-    return db.query(Tipo).filter(Tipo.bodega_id == bodega_id).first() is not None
+def soltar_tipos(db: Session, bodega_id: int) -> None:
+    """Sus tipos pasan a generales (sin bodega) de la misma empresa, a la espera de otra bodega. No hace commit."""
+    db.query(Tipo).filter(Tipo.bodega_id == bodega_id).update({Tipo.bodega_id: None}, synchronize_session=False)

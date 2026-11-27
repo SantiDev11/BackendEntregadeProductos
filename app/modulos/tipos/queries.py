@@ -13,11 +13,15 @@ def obtener(db: Session, tipo_id: int) -> Tipo | None:
     return db.get(Tipo, tipo_id)
 
 
-def existe_nombre(db: Session, nombre: str, bodega_id: int | None, excluir_id: int | None = None) -> bool:
+def existe_nombre(db: Session, nombre: str, bodega_id: int | None, empresa_id: int | None, excluir_id: int | None = None) -> bool:
     """True si ya hay un tipo con ese nombre en ESA bodega (sin distinguir mayúsculas), sin contar `excluir_id`.
-    Los tipos sin bodega (bodega_id = None) se comparan entre sí."""
+    Los tipos sin bodega (bodega_id = None) se comparan con los de su misma empresa que tampoco tienen bodega."""
     query = db.query(Tipo).filter(func.lower(Tipo.nombre) == nombre.lower())
-    query = query.filter(Tipo.bodega_id.is_(None) if bodega_id is None else Tipo.bodega_id == bodega_id)
+    if bodega_id is None:
+        misma_empresa = Tipo.empresa_id.is_(None) if empresa_id is None else Tipo.empresa_id == empresa_id
+        query = query.filter(Tipo.bodega_id.is_(None), misma_empresa)
+    else:
+        query = query.filter(Tipo.bodega_id == bodega_id)
     if excluir_id is not None:
         query = query.filter(Tipo.id != excluir_id)  # al editar, no compararse consigo mismo
     return query.first() is not None

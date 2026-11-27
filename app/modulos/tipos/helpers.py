@@ -14,17 +14,20 @@ def es_admin(usuario: Usuario) -> bool:
 
 
 def bodegas_permitidas(db: Session, usuario: Usuario) -> list[int] | None:
-    """None si puede ver todas (admin); si no, los ids de sus bodegas."""
-    return None if es_admin(usuario) else queries.ids_bodegas(db, alcance_de(usuario))
+    """None si no se filtra por bodega: el admin (todo) y la empresa (todo lo de su empresa, también los tipos generales,
+    sin bodega). Los demás, los ids de sus bodegas."""
+    alcance = alcance_de(usuario)
+    return None if alcance.ve_toda_la_empresa else queries.ids_bodegas(db, alcance)
 
 
 def get_tipo_or_404(db: Session, tipo_id: int, usuario: Usuario) -> Tipo:
-    """Devuelve el tipo; 404 si no existe y 403 si es de una bodega que no es del usuario (salvo admin)."""
+    """Devuelve el tipo; 404 si no existe y 403 si no es del usuario: la empresa maneja todos los de su empresa (también
+    los generales, sin bodega); los demás, solo los de sus bodegas."""
     tipo = queries.obtener(db, tipo_id)
     if tipo is None:
         raise errors.tipo_no_encontrado()
     alcance = alcance_de(usuario)
-    if not alcance.incluye(tipo) or (not alcance.es_admin and tipo.bodega_id not in queries.ids_bodegas(db, alcance)):
+    if not alcance.incluye(tipo) or (not alcance.ve_toda_la_empresa and tipo.bodega_id not in queries.ids_bodegas(db, alcance)):
         raise errors.tipo_ajeno()
     return tipo
 
@@ -51,16 +54,26 @@ def bodega_para_nuevo_tipo(db: Session, usuario: Usuario, bodega_id: int | None)
 
 
 def validate_bodega_existe(db: Session, bodega_id: int) -> Bodega:
-    """Devuelve la bodega o lanza 400 si no existe (para cuando el admin mueve un tipo)."""
+    """Devuelve la bodega o lanza 400 si no existe."""
     bodega = queries.obtener_bodega(db, bodega_id)
     if bodega is None:
         raise errors.bodega_invalida()
     return bodega
 
 
-def validate_unique_tipo_name(db: Session, nombre: str, bodega_id: int | None, excluir_id: int | None = None) -> None:
-    """Lanza 400 si ya existe otro tipo con ese nombre en la misma bodega (sin distinguir mayúsculas)."""
-    if queries.existe_nombre(db, nombre, bodega_id, excluir_id):
+def validate_bodega_destino(db: Session, bodega_id: int, usuario: Usuario) -> Bodega:
+    """Bodega a la que se mueve un tipo: el admin, cualquiera; la empresa, una de su empresa. Si no, 400."""
+    bodega = validate_bodega_existe(db, bodega_id)
+    if not alcance_de(usuario).incluye(bodega):
+        raise errors.bodega_invalida()
+    return bodega
+
+
+def validate_unique_tipo_name(db: Session, nombre: str, bodega_id: int | None, empresa_id: int | None,
+                              excluir_id: int | None = None) -> None:
+    """Lanza 400 si ya existe otro tipo con ese nombre en la misma bodega (sin distinguir mayúsculas).
+    Los generales (sin bodega) se comparan solo con los generales de su misma empresa."""
+    if queries.existe_nombre(db, nombre, bodega_id, empresa_id, excluir_id):
         raise errors.nombre_duplicado()
 
 
@@ -68,3 +81,13 @@ def validate_se_puede_eliminar(db: Session, tipo_id: int) -> None:
     """Lanza 400 si el tipo está usado en alguna línea de factura (evita el error 500 de clave foránea)."""
     if queries.usado_en_facturas(db, tipo_id):
         raise errors.usado_en_facturas()
+
+
+def validate_estado_segun_empresa(registro, cambios: dict) -> None:
+    """Si llega estado: no deja activar nada de una empresa que no está activa (400). Activar o desactivar a mano quita la
+    marca de la suspensión: lo que alguien desactivó durante ella sigue inactivo al reactivar la empresa."""
+    if "estado" not in cambios:
+        return
+    if cambios["estado"] and registro.empresa is not None and registro.empresa.estado != "activa":
+        raise errors.empresa_no_activa(registro.empresa.estado)
+    cambios["desactivado_por_empresa"] = False

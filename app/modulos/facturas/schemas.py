@@ -261,6 +261,7 @@ class BodegaResumen(BaseModel):
     codigo: Optional[str] = Field(default=None, examples=["BOD-01"])
     direccion: Optional[str] = Field(default=None, examples=["Calle 1 # 2-3"])
     ciudad: Optional[str] = Field(default=None, examples=["Bogotá"])
+    correo: Optional[str] = Field(default=None, description="Correo de la bodega.", examples=["bodega@empresa.com"])
     recibe_nombre: Optional[str] = Field(default=None, examples=["Ana Ruiz"])
     recibe_documento: Optional[str] = Field(default=None, examples=["52123456"])
     recibe_cargo: Optional[str] = Field(default=None, examples=["Jefe de bodega"])

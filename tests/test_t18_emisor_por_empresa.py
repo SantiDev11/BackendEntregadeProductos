@@ -143,3 +143,20 @@ def test_la_migracion_corrige_las_facturas_viejas_de_cada_empresa(m):
 
     r = correr_script(script, "--aplicar")  # repetirla no cambia nada
     assert "Facturas con empresa y emisor demo: 0" in r.stdout and foto() == despues
+
+
+# ===== CORREO DE LA BODEGA (pedido del frontend) =====
+
+def test_la_bodega_de_la_factura_trae_su_correo(m, monkeypatch):
+    escritos, original = [], pdf._PdfFactura.multi_cell
+
+    def multi_cell(self, *args, **kwargs):
+        escritos.append(str(kwargs.get("text", args[2] if len(args) > 2 else "")))
+        return original(self, *args, **kwargs)
+    monkeypatch.setattr(pdf._PdfFactura, "multi_cell", multi_cell)
+    f = m.id["factura bX"]
+    assert detalle(m, f)["bodega"]["correo"] == "b@b.com"  # el de datos_bodega
+    assert m.pedir("admin", "GET", f"/facturas/{f}/pdf").status_code == 200 and "b@b.com" in escritos
+    # es el correo actual de la bodega (la bodega no se copia en la factura, a diferencia del emisor)
+    assert m.pedir("admin", "PUT", f"/bodegas/{m.id['bodega bX']}", {"correo": "despachos@x.com"}).status_code == 200
+    assert detalle(m, f)["bodega"]["correo"] == "despachos@x.com"

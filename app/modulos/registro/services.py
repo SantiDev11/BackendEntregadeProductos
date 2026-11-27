@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.security import hash_password
 from app.modulos.empresas.models import Empresa
 from app.modulos.empresas.schemas import EmpresaCreate
+from app.modulos.registro import errors
 from app.modulos.registro.helpers import rol_por_nombre, validate_repetidos
 from app.modulos.registro.schemas import (EmpresaRegistrada, RegistroCliente, RegistroClienteOut, RegistroEmpresa,
                                           RegistroEmpresaOut, UsuarioRegistrado)
@@ -52,6 +53,8 @@ def crear_empresa(db: Session, datos: EmpresaCreate, estado: str, creado_por: in
 def _crear_usuario(db: Session, rol_nombre: str, contrasena: str, **campos) -> Usuario:
     """Agrega el usuario con su rol y una copia de la plantilla de permisos. No hace commit."""
     rol = rol_por_nombre(db, rol_nombre)
+    if not rol.estado:
+        raise errors.rol_inactivo(rol_nombre)  # el admin lo desactivó: por ejemplo, para cerrar el registro
     usuario = Usuario(**campos, contrasena=hash_password(contrasena), rol_id=rol.id)  # nunca en texto plano
     usuario.permisos = list(rol.permisos)
     db.add(usuario)

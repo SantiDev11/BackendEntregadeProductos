@@ -7,7 +7,7 @@ from test_t7_aislamiento import CLAVE, datos_factura, m  # noqa: F401  (m es el 
 
 from app.modulos import Rol, Usuario
 from app.modulos.facturas.errors import MSG_BODEGA, MSG_TIPOS_INACTIVOS
-from app.modulos.roles.errors import MSG_BASE_NO_SE_DESACTIVA
+from app.modulos.roles.errors import MSG_ADMIN_NO_SE_DESACTIVA
 from app.modulos.usuarios.errors import MSG_DESACTIVARSE, MSG_ROL_INACTIVO
 
 BOOLEANO = "debe ser true o false"
@@ -100,11 +100,14 @@ def test_sin_el_permiso_de_editar_da_403(m):
 
 # ===== ROLES =====
 
-def test_los_roles_base_no_se_desactivan(m):
-    for nombre in ("admin", "empresa", "bodeguero", "cliente"):
-        for r in (estado(m, "admin", f"/roles/{m.rol[nombre]}", False), m.pedir("admin", "PUT", f"/roles/{m.rol[nombre]}", {"estado": False})):
-            assert (r.status_code, r.json()) == (400, {"detail": MSG_BASE_NO_SE_DESACTIVA}), nombre
-        assert estado(m, "admin", f"/roles/{m.rol[nombre]}", True).status_code == 200
+def test_solo_el_rol_admin_no_se_desactiva(m):
+    """Los demás roles base sí (lo pidió el frontend); qué pasa con cada uno se prueba en test_t20."""
+    for r in (estado(m, "admin", f"/roles/{m.rol['admin']}", False), m.pedir("admin", "PUT", f"/roles/{m.rol['admin']}", {"estado": False})):
+        assert (r.status_code, r.json()) == (400, {"detail": MSG_ADMIN_NO_SE_DESACTIVA})
+    assert estado(m, "admin", f"/roles/{m.rol['admin']}", True).status_code == 200
+    for nombre in ("empresa", "bodeguero", "cliente"):
+        assert estado(m, "admin", f"/roles/{m.rol[nombre]}", False).json()["estado"] is False, nombre
+        assert m.pedir("admin", "PUT", f"/roles/{m.rol[nombre]}", {"estado": True}).json()["estado"] is True, nombre
 
 
 def test_un_rol_inactivo_no_se_asigna(m):
@@ -132,7 +135,10 @@ def test_la_empresa_desactiva_su_bodega_y_ya_no_se_factura_en_ella(m):
         r = m.pedir(quien, "POST", "/facturas", datos_factura(c, b, t))
         assert (r.status_code, r.json()) == (400, {"detail": MSG_BODEGA}), quien
     assert m.pedir("X", "GET", f"/facturas/{m.id['factura bX']}").status_code == 200  # sus facturas siguen ahí
-    assert estado(m, "bX", f"/bodegas/{b}", True).status_code == 200  # su bodeguero también puede
+    # al desactivarla quedó sin bodeguero (T21): su bodeguero ya no la ve; la empresa la reactiva y se la vuelve a asignar
+    assert estado(m, "bX", f"/bodegas/{b}", True).status_code == 404
+    assert estado(m, "X", f"/bodegas/{b}", True).status_code == 200
+    assert m.pedir("X", "PUT", f"/bodegas/{b}", {"bodeguero_id": m.id["usuario bX"]}).status_code == 200
     assert m.pedir("bX", "POST", "/facturas", datos_factura(c, b, t)).status_code == 201
 
 

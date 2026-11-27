@@ -21,23 +21,27 @@ router = APIRouter(tags=["Auth"])
     response_model=LoginResponse,
     summary="Iniciar sesión",
     description="""
-Valida el correo y la contraseña y devuelve un token JWT junto con los datos del usuario.
+Valida el correo **o el número de documento** y la contraseña, y devuelve un token JWT junto con los datos del usuario.
 
 **Quién puede usarlo:** cualquiera. Es público y no requiere token.
 
 **Cuerpo:**
-- `correo` (**obligatorio**): correo del usuario, con formato válido.
+- `correo` (**obligatorio**, o `identificador`): correo **o número de documento** del usuario. Si tiene `@` se busca por
+  correo; si no, por número de documento, sin distinguir mayúsculas. Quien no tiene documento registrado entra con su correo.
+- `identificador` (opcional): lo mismo que `correo`, con un nombre más claro. Si llegan los dos, se usa este.
 - `contrasena` (**obligatorio**): contraseña del usuario.
 
 **Reglas:**
-- Si el correo no existe **o** la contraseña es incorrecta, responde el **mismo** 401, para no revelar cuál de los dos falló.
+- Si el correo o el documento no existe **o** la contraseña es incorrecta, responde el **mismo** 401
+  (`Correo o contraseña incorrectos`), para no revelar cuál falló.
+- Si no llega ni `correo` ni `identificador`: 422 `correo: es obligatorio`.
 - Si las credenciales son correctas pero su empresa está pendiente, rechazada o suspendida, responde **403** con el motivo.
 - El `access_token` vence a los **60 minutos**. Se puede renovar con `POST /refresh` sin pedir contraseña.
 - El `refresh_token` vence a los **7 días** (configurable). Al usarlo se rota: se recibe uno nuevo.
 - La respuesta nunca incluye la contraseña ni su hash.
 
 **Cómo usar el token:** se envía en el header `Authorization: Bearer <access_token>`.
-En esta página no hace falta copiarlo: pulsa **Authorize**, escribe tu correo en **username** y tu contraseña
+En esta página no hace falta copiarlo: pulsa **Authorize**, escribe tu correo o tu documento en **username** y tu contraseña
 en **password**, y pulsa **Authorize** otra vez.
 
 **Devuelve:** `access_token`, `refresh_token`, `token_type` (`bearer`) y `user` con `id`, `nombre`, `correo`, `rol` (como texto), `empresa` (`{id, razon_social, estado}` o `null`) y `permisos`.

@@ -7,6 +7,7 @@ from app.modulos.roles.schemas import PermisoResumen
 from app.modulos.usuarios import errors, queries
 from app.modulos.usuarios.helpers import (empresa_al_cambiar_rol, empresa_para_nuevo_usuario, get_permiso_or_404,
                                           get_usuario_editable, get_usuario_or_404, rol_asignable, rol_para_nuevo_usuario,
+                                          validate_estado_segun_empresa,
                                           vacios_a_none, validate_unique_usuario_documento, validate_unique_usuario_email)
 from app.modulos.usuarios.models import Usuario
 from app.modulos.usuarios.schemas import (UsuarioCreate, UsuarioEstadoUpdate, UsuarioUpdate, UsuarioOut, UsuarioPaginado, UsuarioPermisosOut,
@@ -67,6 +68,9 @@ def actualizar_usuario(datos: UsuarioUpdate, usuario_id: int, db: Session, usuar
     # El admin no puede desactivarse a sí mismo (se quedaría sin acceso)
     if usuario_id == usuario.id and cambios.get("estado") is False:
         raise errors.no_puede_desactivarse()
+    validate_estado_segun_empresa(editado, cambios)
+    if cambios.get("estado") is False:
+        queries.soltar_bodegas(db, usuario_id)  # sus bodegas quedan sin bodeguero (no se desactivan)
 
     if "correo" in cambios:
         cambios["correo"] = cambios["correo"].lower()  # el correo siempre se guarda en minúsculas
@@ -80,6 +84,8 @@ def actualizar_usuario(datos: UsuarioUpdate, usuario_id: int, db: Session, usuar
                 raise errors.rol_no_permitido()
             rol = rol_asignable(db, alcance, cambios["rol_id"])
             cambios["empresa_id"] = empresa_al_cambiar_rol(db, alcance, editado, rol, datos.empresa_id)
+            # Con otro rol ya no lo frena el anterior: deja de esperar su reactivación (sigue inactivo hasta que lo activen)
+            cambios["desactivado_por_rol"] = False
 
     if cambios.get("numero_documento"):
         validate_unique_usuario_documento(db, cambios["numero_documento"], excluir_id=usuario_id)
@@ -159,8 +165,7 @@ def eliminar_usuario(usuario_id: int, db: Session, usuario: Usuario):
     # Si el usuario tiene facturas (como cliente o como emisor), no se borra (evita el error 500)
     if queries.tiene_facturas(db, usuario_id):
         raise errors.tiene_facturas()
-    if queries.tiene_bodegas(db, usuario_id):
-        raise errors.tiene_bodegas()
 
+    queries.soltar_bodegas(db, usuario_id)  # sus bodegas quedan sin bodeguero (no se borran ni se desactivan)
     db.delete(eliminado)
     db.commit()

@@ -8,8 +8,9 @@ from app.modulos.roles.schemas import MSG_BOOLEANO, MSG_NUMERO
 MSG_NO_ENCONTRADO = "Rol no encontrado"
 MSG_NOMBRE_DUPLICADO = "Ya existe un rol con ese nombre"
 MSG_PERMISOS_NO_EXISTEN = "Uno o más permisos no existen"
-MSG_TIENE_USUARIOS = "No se puede eliminar: hay usuarios con este rol"
-MSG_BASE_NO_SE_DESACTIVA = "Los roles base (admin, empresa, bodeguero y cliente) no se pueden desactivar"
+MSG_TIENE_USUARIOS = "No se puede eliminar: hay usuarios con este rol. Desactívelo o asigne otro rol a sus usuarios"
+MSG_ADMIN_NO_SE_DESACTIVA = "El rol admin no se puede desactivar"
+MSG_PROPIO_ROL = "No puede desactivar su propio rol"
 
 
 # ===== FUNCIONES QUE LANZAN EL ERROR (uso: raise errors.rol_no_encontrado()) =====
@@ -35,9 +36,14 @@ def tiene_usuarios():
     return error_400(MSG_TIENE_USUARIOS)
 
 
-def base_no_se_desactiva():
-    """400: sin esos roles no se podría registrar, crear bodegueros ni entrar como admin."""
-    return error_400(MSG_BASE_NO_SE_DESACTIVA)
+def admin_no_se_desactiva():
+    """400: el sistema siempre necesita poder asignar el rol admin."""
+    return error_400(MSG_ADMIN_NO_SE_DESACTIVA)
+
+
+def propio_rol():
+    """400: desactivar su propio rol lo dejaría a él mismo sin acceso."""
+    return error_400(MSG_PROPIO_ROL)
 
 
 # ===== EJEMPLOS DE ERROR PARA /docs =====
@@ -70,7 +76,8 @@ DOC_422_ACTUALIZAR = respuesta_error(
     descripcion_larga="descripcion: es demasiado largo",
     estado_invalido="estado: tiene un formato inválido",
 )
-DOC_400_ESTADO = respuesta_error("Se intentó desactivar un rol base", rol_base=MSG_BASE_NO_SE_DESACTIVA)
+DOC_400_ESTADO = respuesta_error("Se intentó desactivar el rol admin o el propio rol", rol_admin=MSG_ADMIN_NO_SE_DESACTIVA,
+                                 propio_rol=MSG_PROPIO_ROL)
 DOC_422_ESTADO = respuesta_error(
     "El id o el cuerpo no cumplen las validaciones",
     id_invalido="rol_id: tiene un formato inválido",

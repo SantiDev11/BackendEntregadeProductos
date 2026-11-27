@@ -1,4 +1,4 @@
-from sqlalchemy import Column, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, text
 from sqlalchemy.orm import relationship
 
 from app.config.database import Base
@@ -29,5 +29,13 @@ class Bodega(EstadoAuditoriaMixin, Base):
     # Empresa de la bodega (null = bodega anterior a las empresas)
     empresa_id = Column(Integer, ForeignKey("empresas.id"), nullable=True)
 
+    # True = está inactivo porque su empresa se suspendió (no porque alguien lo desactivó): al reactivarla vuelve a activo
+    desactivado_por_empresa = Column(Boolean, nullable=False, default=False, server_default=text("0"))
+
     bodeguero = relationship("Usuario")
     empresa = relationship("Empresa")
+
+    @property
+    def empresa_estado(self) -> str | None:
+        """Estado de su empresa (pendiente, activa, rechazada o suspendida), o None si no tiene."""
+        return self.empresa.estado if self.empresa is not None else None

@@ -62,6 +62,8 @@ def rol_para_nuevo_usuario(db: Session, alcance: Alcance, rol_id: int | None) ->
         bodeguero = queries.rol_por_nombre(db, "bodeguero")
         if rol_id not in (None, bodeguero.id):
             raise errors.rol_no_permitido()
+        if not bodeguero.estado:
+            raise errors.rol_inactivo()
         return bodeguero
     if rol_id is None:
         raise errors.rol_obligatorio()
@@ -107,3 +109,18 @@ def validate_unique_usuario_documento(db: Session, numero_documento: str, exclui
 def vacios_a_none(valores: dict) -> dict:
     """Convierte "" en None para guardar NULL (evita choques en los campos únicos como numero_documento)."""
     return {campo: (None if valor == "" else valor) for campo, valor in valores.items()}
+
+
+def validate_estado_segun_empresa(registro, cambios: dict) -> None:
+    """Si llega estado: no deja activar nada de una empresa que no está activa (400). Activar o desactivar a mano quita la
+    marca de la suspensión: lo que alguien desactivó durante ella sigue inactivo al reactivar la empresa."""
+    if "estado" not in cambios:
+        return
+    if cambios["estado"] and registro.empresa is not None and registro.empresa.estado != "activa":
+        raise errors.empresa_no_activa(registro.empresa.estado)
+    # Tampoco se activa a alguien cuyo rol está inactivo (si en la misma petición le cambian el rol, el nuevo ya se validó)
+    mismo_rol = cambios.get("rol_id", registro.rol_id) == registro.rol_id
+    if cambios["estado"] and mismo_rol and not registro.rol.estado:
+        raise errors.rol_inactivo_al_activar()
+    cambios["desactivado_por_empresa"] = False
+    cambios["desactivado_por_rol"] = False

@@ -42,8 +42,17 @@ def validate_bodeguero(db: Session, bodeguero_id: int, alcance: Alcance) -> Usua
 
 
 def validate_se_puede_eliminar(db: Session, bodega_id: int) -> None:
-    """Lanza 400 si la bodega tiene facturas o tipos (evita el error 500 de clave foránea)."""
+    """Lanza 400 si la bodega tiene facturas: las facturas la necesitan (evita el error 500 de clave foránea).
+    Sus tipos no impiden borrarla: pasan a generales de la empresa."""
     if queries.tiene_facturas(db, bodega_id):
         raise errors.tiene_facturas()
-    if queries.tiene_tipos(db, bodega_id):
-        raise errors.tiene_tipos()  # primero hay que borrar o mover sus tipos
+
+
+def validate_estado_segun_empresa(registro, cambios: dict) -> None:
+    """Si llega estado: no deja activar nada de una empresa que no está activa (400). Activar o desactivar a mano quita la
+    marca de la suspensión: lo que alguien desactivó durante ella sigue inactivo al reactivar la empresa."""
+    if "estado" not in cambios:
+        return
+    if cambios["estado"] and registro.empresa is not None and registro.empresa.estado != "activa":
+        raise errors.empresa_no_activa(registro.empresa.estado)
+    cambios["desactivado_por_empresa"] = False

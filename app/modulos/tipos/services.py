@@ -1,9 +1,10 @@
 # Lógica de cada endpoint de Tipos. El router solo recibe la petición y llama a estas funciones.
 from sqlalchemy.orm import Session
 
-from app.core.alcance import Alcance
+from app.core.alcance import Alcance, alcance_de
 from app.modulos.tipos import queries
-from app.modulos.tipos.helpers import (bodega_para_nuevo_tipo, bodegas_permitidas, es_admin, get_tipo_or_404,
+from app.modulos.tipos.helpers import (bodega_para_nuevo_tipo, bodegas_permitidas, get_tipo_or_404,
+                                       validate_estado_segun_empresa, validate_bodega_destino,
                                        validate_bodega_existe, validate_se_puede_eliminar,
                                        validate_unique_tipo_name)
 from app.modulos.tipos.models import Tipo
@@ -33,11 +34,12 @@ def obtener_tipo(tipo_id: int, db: Session, usuario: Usuario):
 def crear_tipo(datos: TipoCreate, db: Session, usuario: Usuario):
     """Crea un tipo en la bodega que corresponde y registra quién lo creó."""
     bodega_id = bodega_para_nuevo_tipo(db, usuario, datos.bodega_id)
-    validate_unique_tipo_name(db, datos.nombre, bodega_id)
+    empresa_id = validate_bodega_existe(db, bodega_id).empresa_id if bodega_id is not None else None
+    validate_unique_tipo_name(db, datos.nombre, bodega_id, empresa_id)
 
     valores = datos.model_dump()
     valores["bodega_id"] = bodega_id
-    valores["empresa_id"] = validate_bodega_existe(db, bodega_id).empresa_id if bodega_id is not None else None
+    valores["empresa_id"] = empresa_id
     tipo = Tipo(**valores, creado_por=usuario.id, actualizado_por=usuario.id)
     db.add(tipo)
     db.commit()
@@ -50,18 +52,20 @@ def actualizar_tipo(datos: TipoUpdate, tipo_id: int, db: Session, usuario: Usuar
     y registra quién hizo el cambio."""
     tipo = get_tipo_or_404(db, tipo_id, usuario)
     cambios = datos.model_dump(exclude_none=True)
+    validate_estado_segun_empresa(tipo, cambios)
 
-    # Solo el admin puede mover el tipo a otra bodega; si lo envía otro usuario, se ignora
-    if not es_admin(usuario):
+    # Mover el tipo a otra bodega: el admin a cualquiera; la empresa a una de las suyas (así reasigna sus tipos generales).
+    # Si lo envía otro usuario, se ignora
+    if not alcance_de(usuario).ve_toda_la_empresa:
         cambios.pop("bodega_id", None)
     elif "bodega_id" in cambios:
         # el tipo siempre es de la empresa de su bodega
-        cambios["empresa_id"] = validate_bodega_existe(db, cambios["bodega_id"]).empresa_id
+        cambios["empresa_id"] = validate_bodega_destino(db, cambios["bodega_id"], usuario).empresa_id
 
     # El nombre se valida contra la bodega en la que va a quedar el tipo
     if "nombre" in cambios or "bodega_id" in cambios:
-        validate_unique_tipo_name(db, cambios.get("nombre", tipo.nombre),
-                                  cambios.get("bodega_id", tipo.bodega_id), excluir_id=tipo_id)
+        validate_unique_tipo_name(db, cambios.get("nombre", tipo.nombre), cambios.get("bodega_id", tipo.bodega_id),
+                                  cambios.get("empresa_id", tipo.empresa_id), excluir_id=tipo_id)
 
     for campo, valor in cambios.items():
         setattr(tipo, campo, valor)

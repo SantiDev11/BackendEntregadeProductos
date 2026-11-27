@@ -200,8 +200,15 @@ Activa o desactiva el rol sin tocar sus demás datos. Es lo mismo que enviar sol
 
 **Reglas:**
 - Un rol inactivo **no se puede asignar** al crear o editar usuarios (400 `El rol indicado no está activo`).
-  Los usuarios que ya lo tienen siguen igual.
-- Los roles base (`admin`, `empresa`, `bodeguero` y `cliente`) **no se pueden desactivar** (400).
+- **Desactivarlo desactiva a sus usuarios activos** (no los borra ni les quita el rol). Las bodegas que tenían a cargo quedan
+  sin bodeguero. Mientras el rol esté inactivo, activar a uno de ellos da 400.
+- **Reactivarlo devuelve a activo solo a los que desactivó el rol.** Los que estaban inactivos desde antes siguen así; los de una
+  empresa que no está activa siguen inactivos hasta que se reactive la empresa. Sus bodegas no vuelven solas.
+- El rol `admin` **no se puede desactivar** (400), ni el **propio rol** de quien hace el cambio (400). Los demás roles base sí
+  (¡ojo: desactivar `cliente` deja sin acceso a todos los clientes!):
+  - `cliente` inactivo: `POST /register` de clientes da 400, y nadie puede crear clientes.
+  - `empresa` inactivo: `POST /register` de empresas y `POST /empresas` dan 400.
+  - `bodeguero` inactivo: ni el admin ni la empresa pueden crear bodegueros.
 - El rol `empresa` no entra a este módulo (403).
 - Guarda en `actualizado_por` quién hizo el cambio.
 
@@ -288,7 +295,8 @@ Elimina un rol de forma **definitiva** (no es un borrado lógico), junto con sus
 - `rol_id` (en la ruta): id del rol a eliminar.
 
 **Reglas:**
-- Si hay **usuarios con este rol**, no se elimina y responde 400. Primero hay que cambiarles el rol.
+- Si hay **usuarios con este rol**, no se elimina y responde 400: nunca se borran usuarios ni quedan sin rol.
+  Se puede desactivar, o asignar otro rol a sus usuarios y después eliminarlo.
 - Al eliminarlo se quitan sus filas de `rol_permiso`. Los permisos en sí **no** se borran.
 - Para desactivar un rol sin borrarlo, usa `PUT` con `{"estado": false}`.
 

@@ -13,6 +13,7 @@ MSG_VARIAS_BODEGAS = "Tiene varias bodegas: indique bodega_id con una de las suy
 MSG_BODEGA_INVALIDA = "La bodega indicada no existe o no le pertenece"
 MSG_TIPO_AJENO = "El tipo no pertenece a su bodega"
 
+MSG_EMPRESA_NO_ACTIVA = "No se puede activar porque la empresa está {}. Reactive primero la empresa"
 
 # ===== FUNCIONES QUE LANZAN EL ERROR (uso: raise errors.tipo_no_encontrado()) =====
 
@@ -42,6 +43,10 @@ def bodega_invalida():
 
 def usado_en_facturas():
     return error_400(MSG_USADO_EN_FACTURAS)
+
+def empresa_no_activa(estado: str):
+    """400 al activar algo de una empresa pendiente, rechazada o suspendida."""
+    return error_400(MSG_EMPRESA_NO_ACTIVA.format(estado))
 
 
 # ===== EJEMPLOS DE ERROR PARA /docs =====

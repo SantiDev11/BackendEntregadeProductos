@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.core.alcance import Alcance, alcance_de
 from app.modulos.bodegas import errors, queries
-from app.modulos.bodegas.helpers import (get_bodega_or_404, validate_bodeguero, validate_se_puede_eliminar,
+from app.modulos.bodegas.helpers import (get_bodega_or_404, validate_bodeguero, validate_estado_segun_empresa, validate_se_puede_eliminar,
                                          validate_unique_bodega_codigo, validate_unique_bodega_name)
 from app.modulos.bodegas.models import Bodega
 from app.modulos.bodegas.schemas import BodegaCreate, BodegaEstadoUpdate, BodegaOut, BodegaPaginado, BodegaUpdate
@@ -61,6 +61,7 @@ def actualizar(db: Session, bodega_id: int, datos: BodegaUpdate, usuario: Usuari
     y registra quién hizo el cambio. Ningún dato puede quedar vacío (lo valida el schema)."""
     bodega = get_bodega_or_404(db, bodega_id, usuario)
     cambios = datos.model_dump(exclude_none=True)  # null = no se cambia
+    validate_estado_segun_empresa(bodega, cambios)
 
     # Solo el admin o la empresa pueden cambiar el dueño; si lo envía un bodeguero, se ignora
     alcance = alcance_de(usuario)
@@ -70,6 +71,11 @@ def actualizar(db: Session, bodega_id: int, datos: BodegaUpdate, usuario: Usuari
         bodeguero = validate_bodeguero(db, cambios["bodeguero_id"], alcance)
         if bodeguero.empresa_id != bodega.empresa_id:
             raise errors.bodeguero_de_otra_empresa()
+
+    # Desactivarla la deja sin bodeguero y pasa sus tipos a generales de la empresa (no se borran ni se desactivan)
+    if cambios.get("estado") is False:
+        cambios["bodeguero_id"] = None
+        queries.soltar_tipos(db, bodega_id)
 
     if "nombre" in cambios:
         validate_unique_bodega_name(db, cambios["nombre"], excluir_id=bodega_id)
@@ -93,8 +99,10 @@ def cambiar_estado(db: Session, bodega_id: int, datos: BodegaEstadoUpdate, usuar
 
 
 def eliminar(db: Session, bodega_id: int, usuario: Usuario) -> None:
-    """Elimina una bodega (el bodeguero solo las suyas), si no tiene facturas ni tipos."""
+    """Elimina una bodega (el bodeguero solo las suyas), si no tiene facturas. Sus tipos pasan a generales de la empresa
+    y su bodeguero queda sin esta bodega; ninguno se borra ni se desactiva."""
     bodega = get_bodega_or_404(db, bodega_id, usuario)
     validate_se_puede_eliminar(db, bodega_id)
+    queries.soltar_tipos(db, bodega_id)
     db.delete(bodega)
     db.commit()

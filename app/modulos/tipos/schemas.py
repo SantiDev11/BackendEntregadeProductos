@@ -62,7 +62,8 @@ class TipoUpdate(BaseModel):
     )
     bodega_id: Optional[Entero] = Field(
         default=None,
-        description="Opcional, **solo admin**: mueve el tipo a otra bodega. Si lo envía otro usuario, se ignora.",
+        description="Opcional, **solo admin o empresa**: mueve el tipo a otra bodega (la empresa, a una de las suyas). "
+                    "Si lo envía otro usuario, se ignora.",
         examples=[2],
     )
     estado: Optional[bool] = Field(
@@ -85,6 +86,7 @@ class TipoOut(BaseModel):
                 "bodega_nombre": "Bodega Central",
                 "empresa_id": 1,
                 "empresa_nombre": "Distribuidora Andina S.A.S.",
+                "empresa_estado": "activa",
                 "estado": True,
                 "creado_en": "2026-11-18T10:30:00",
                 "actualizado_en": "2026-11-18T10:30:00",
@@ -104,6 +106,9 @@ class TipoOut(BaseModel):
     empresa_nombre: Optional[str] = Field(default=None, validation_alias="empresa",
                                           description="Razón social de su empresa, o `null` si no tiene.",
                                           examples=["Distribuidora Andina S.A.S."])
+    empresa_estado: Optional[str] = Field(default=None, description="Estado de su empresa: `pendiente`, `activa`, `rechazada` o "
+                                          "`suspendida`, o `null` si no tiene. Mientras no sea `activa`, no se puede activar.",
+                                          examples=["activa"])
     estado: bool = Field(description="`true` = activo, `false` = inactivo.", examples=[True])
     creado_en: datetime = Field(description="Fecha y hora de creación (la pone el servidor).",
                                 examples=["2026-11-18T10:30:00"])

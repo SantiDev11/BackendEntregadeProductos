@@ -234,7 +234,7 @@ def test_no_crea_nada_dentro_de_la_otra(e, yo, otra):
             assert e.pedir(quien, "PUT", f"/facturas/{mio['factura'][0]}", datos_factura(c, mio["bodega"][0], t)).status_code == 400
     for b in ajeno["bodega"]:
         assert e.pedir(yo, "POST", "/tipos", {"nombre": "Z", "bodega_id": b}).status_code == 400
-        assert e.pedir(yo, "PUT", f"/tipos/{mio['tipo'][0]}", {"bodega_id": b}).json()["bodega_id"] == mio["bodega"][0]  # se ignora
+        assert e.pedir(yo, "PUT", f"/tipos/{mio['tipo'][0]}", {"bodega_id": b}).status_code == 400  # a una bodega ajena: 400 (T21)
     for u in ajeno["usuario"]:
         assert e.pedir(yo, "POST", "/bodegas", datos_bodega("Z", bodeguero_id=u)).status_code == 400
         assert e.pedir(yo, "PUT", f"/bodegas/{mio['bodega'][0]}", {"bodeguero_id": u}).status_code == 400

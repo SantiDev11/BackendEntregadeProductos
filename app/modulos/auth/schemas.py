@@ -1,26 +1,43 @@
 # Esquemas de autenticación (entrada y salida de /login)
-from typing import List, Optional
+from typing import Annotated, List, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from app.modulos.empresas.schemas import EmpresaResumen
 from app.modulos.roles.schemas import PermisoResumen  # {id, nombre} de cada permiso
 
 
+# Correo o número de documento: se quitan los espacios de los lados y no puede quedar vacío
+Identificador = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
+
+
 class LoginRequest(BaseModel):
-    """Datos que envía el frontend para iniciar sesión."""
+    """Datos que envía el frontend para iniciar sesión: correo o número de documento, y contraseña."""
     model_config = ConfigDict(
-        json_schema_extra={"examples": [{"correo": "usuario@entrega.com", "contrasena": "Clave123*"}]}
+        json_schema_extra={"examples": [{"correo": "usuario@entrega.com", "contrasena": "Clave123*"},
+                                        {"identificador": "1020304050", "contrasena": "Clave123*"}]}
     )
 
-    correo: EmailStr = Field(
-        description="**Obligatorio.** Correo del usuario. Debe tener formato de correo válido.",
+    correo: Optional[Identificador] = Field(
+        default=None,
+        description="**Obligatorio (o `identificador`).** Correo **o número de documento** del usuario. Si tiene `@` se busca por "
+                    "correo; si no, por número de documento (sin distinguir mayúsculas). Quien no tiene documento entra con su correo.",
         examples=["usuario@entrega.com"],
+    )
+    identificador: Optional[Identificador] = Field(
+        default=None,
+        description="Alternativa a `correo`, con el mismo uso: correo o número de documento. Si llegan los dos, se usa este.",
+        examples=["1020304050"],
     )
     contrasena: str = Field(
         description="**Obligatorio.** Contraseña del usuario. El servidor la compara con el hash guardado y nunca la devuelve.",
         examples=["Clave123*"],
     )
+
+    @property
+    def usuario(self) -> str | None:
+        """Con lo que se identifica: `identificador` si llegó; si no, `correo`."""
+        return self.identificador or self.correo
 
 
 class UserOut(BaseModel):

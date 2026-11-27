@@ -120,7 +120,7 @@ Todos, menos `POST /login`, `POST /refresh` y `POST /register`, piden `Authoriza
 
 | Módulo | Rutas |
 |---|---|
-| Auth | `POST /login`, `POST /refresh`, `POST /register`, `GET /me` |
+| Auth | `POST /login` (con correo o número de documento), `POST /refresh`, `POST /register`, `GET /me` |
 | Empresas (solo admin) | `GET /empresas?q=&estado=&page=&limit=`, `POST /empresas`, `GET/PUT/DELETE /empresas/{id}`, `PATCH /empresas/{id}/estado` |
 | Tipos | `GET/POST /tipos`, `GET/PUT/DELETE /tipos/{id}`, `PATCH /tipos/{id}/estado` |
 | Bodegas | `GET/POST /bodegas`, `GET/PUT/DELETE /bodegas/{id}`, `PATCH /bodegas/{id}/estado` |
@@ -231,4 +231,6 @@ python migraciones\006_backfill_empresas.py            # opcional: solo muestra 
 python migraciones\007_rol_empresa.py
 Get-Content migraciones\008_numeracion_por_empresa.sql | mysql -u root entrega_productos
 python migraciones\009_emisor_por_empresa.py           # opcional: solo muestra qué haría; con --aplicar lo guarda
+Get-Content migraciones\010_desactivado_por_empresa.sql | mysql -u root entrega_productos
+Get-Content migraciones\011_desactivado_por_rol.sql | mysql -u root entrega_productos
 ```

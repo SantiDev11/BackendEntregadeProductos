@@ -74,10 +74,15 @@ def eliminar(db: Session, empresa_id: int) -> None:
 
 
 def cambiar_estado(db: Session, empresa_id: int, datos: EmpresaEstadoUpdate) -> EmpresaOut:
-    """Aprueba, rechaza, suspende o reactiva una empresa. El motivo solo se guarda al rechazar."""
+    """Aprueba, rechaza, suspende o reactiva una empresa. El motivo solo se guarda al rechazar.
+    Suspenderla desactiva sus usuarios, bodegas y tipos; reactivarla devuelve a activo solo lo que desactivó la suspensión."""
     empresa = get_empresa_or_404(db, empresa_id)
     validate_cambio_estado(empresa.estado, datos.estado)
 
+    if datos.estado == "suspendida":
+        queries.suspender_en_cascada(db, empresa_id)
+    elif datos.estado == "activa":
+        queries.reactivar_en_cascada(db, empresa_id)
     empresa.estado = datos.estado
     empresa.motivo_rechazo = datos.motivo_rechazo  # el schema lo deja en None si no es un rechazo
     db.commit()

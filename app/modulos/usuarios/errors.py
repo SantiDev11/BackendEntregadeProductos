@@ -11,14 +11,15 @@ MSG_PERMISO_NO_ENCONTRADO = "Permiso no encontrado"
 MSG_DESACTIVARSE = "No puede desactivar su propio usuario"
 MSG_PERMISOS_NO_EXISTEN = "Uno o más permisos no existen"
 MSG_ELIMINARSE = "No puede eliminar su propio usuario"
-MSG_TIENE_FACTURAS = "No se puede eliminar: el usuario tiene facturas asociadas"
-MSG_TIENE_BODEGAS = "No se puede eliminar: el usuario tiene bodegas asignadas"
+MSG_TIENE_FACTURAS = "No se puede eliminar: el usuario tiene facturas asociadas. Puede desactivarlo"
 MSG_SIN_PERMISO = "No tiene permiso para esta acción"
 MSG_CORREO_DUPLICADO = "Ya existe un usuario con ese correo"
 MSG_ROL_NO_EXISTE = "El rol indicado no existe"
 MSG_ROL_INACTIVO = "El rol indicado no está activo"
 MSG_DOCUMENTO_DUPLICADO = "Ya existe un usuario con ese documento"
 
+MSG_EMPRESA_NO_ACTIVA = "No se puede activar porque la empresa está {}. Reactive primero la empresa"
+MSG_ROL_INACTIVO_AL_ACTIVAR = "No se puede activar porque su rol está inactivo. Reactive primero el rol"
 
 # ===== FUNCIONES QUE LANZAN EL ERROR (uso: raise errors.usuario_no_encontrado()) =====
 
@@ -62,10 +63,6 @@ def tiene_facturas():
     return error_400(MSG_TIENE_FACTURAS)
 
 
-def tiene_bodegas():
-    return error_400(MSG_TIENE_BODEGAS)
-
-
 def rol_no_permitido():
     """403: una empresa solo puede crear y tener bodegueros."""
     return error_403(MSG_SIN_PERMISO)
@@ -74,6 +71,16 @@ def rol_no_permitido():
 def rol_obligatorio():
     """422 cuando falta rol_id (solo lo puede omitir una empresa: se le asigna bodeguero)."""
     return error_422("rol_id", "es obligatorio")
+
+
+def empresa_no_activa(estado: str):
+    """400 al activar algo de una empresa pendiente, rechazada o suspendida."""
+    return error_400(MSG_EMPRESA_NO_ACTIVA.format(estado))
+
+
+def rol_inactivo_al_activar():
+    """400 al activar a un usuario cuyo rol está inactivo."""
+    return error_400(MSG_ROL_INACTIVO_AL_ACTIVAR)
 
 
 # ===== EJEMPLOS DE ERROR PARA /docs =====
@@ -155,7 +162,6 @@ DOC_400_ELIMINAR = respuesta_error(
     "Intento de eliminar el propio usuario",
     eliminarse=MSG_ELIMINARSE,
     con_facturas=MSG_TIENE_FACTURAS,
-    con_bodegas=MSG_TIENE_BODEGAS,
 )
 DOC_422_ESTADO = respuesta_error(
     "El id o el cuerpo no cumplen las validaciones",

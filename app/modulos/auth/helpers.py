@@ -10,14 +10,17 @@ from app.modulos.roles.schemas import PermisoResumen
 from app.modulos.usuarios.models import Usuario
 
 
-def validar_credenciales(db: Session, correo: str, contrasena: str) -> Usuario:
-    """Devuelve el usuario si el correo existe, la contraseña es correcta y está activo.
+def validar_credenciales(db: Session, identificador: str, contrasena: str) -> Usuario:
+    """Devuelve el usuario si el correo o el número de documento existe, la contraseña es correcta y está activo.
     Si falla cualquiera de los tres lanza el mismo 401, para no revelar cuál falló.
     Solo con las credenciales correctas responde 403 si su empresa no está activa."""
-    usuario = queries.buscar_usuario_por_correo(db, correo)
-    if not usuario or not verify_password(contrasena, usuario.contrasena) or not usuario.estado:
+    usuario = queries.buscar_usuario_para_login(db, identificador)
+    # Quien está inactivo solo por la suspensión de su empresa pasa a la revisión de la empresa: recibe su 403
+    if not usuario or not verify_password(contrasena, usuario.contrasena) or not (usuario.estado or usuario.desactivado_por_empresa):
         raise errors.credenciales_invalidas()
     validate_empresa_activa(usuario)
+    if not usuario.estado:
+        raise errors.credenciales_invalidas()
     return usuario
 
 

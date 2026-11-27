@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Table
+from sqlalchemy import Boolean, Column, Integer, String, ForeignKey, Table, text
 from sqlalchemy.orm import relationship
 
 from app.config.database import Base
@@ -25,6 +25,11 @@ class Usuario(EstadoAuditoriaMixin, Base):
     # Empresa del usuario (null = admin, clientes y usuarios anteriores a las empresas)
     empresa_id = Column(Integer, ForeignKey("empresas.id"), nullable=True)
 
+    # True = está inactivo porque su empresa se suspendió (no porque alguien lo desactivó): al reactivarla vuelve a activo
+    desactivado_por_empresa = Column(Boolean, nullable=False, default=False, server_default=text("0"))
+    # True = está inactivo porque su rol se desactivó: al reactivar el rol vuelve a activo (si su empresa no lo frena)
+    desactivado_por_rol = Column(Boolean, nullable=False, default=False, server_default=text("0"))
+
     # Datos para facturar (todos opcionales)
     tipo_documento = Column(String(10), nullable=True)  # CC, NIT, CE o PA
     numero_documento = Column(String(30), nullable=True, unique=True)  # número de documento (único)
@@ -35,3 +40,8 @@ class Usuario(EstadoAuditoriaMixin, Base):
     rol = relationship("Rol")
     empresa = relationship("Empresa")
     permisos = relationship("Permiso", secondary=usuario_permisos, order_by="Permiso.id")  # permisos efectivos
+
+    @property
+    def empresa_estado(self) -> str | None:
+        """Estado de su empresa (pendiente, activa, rechazada o suspendida), o None si no tiene."""
+        return self.empresa.estado if self.empresa is not None else None

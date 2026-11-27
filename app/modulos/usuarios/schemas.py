@@ -239,6 +239,7 @@ class UsuarioOut(BaseModel):
                 "ciudad": "Bogotá",
                 "empresa_id": 1,
                 "empresa_nombre": "Distribuidora Andina S.A.S.",
+                "empresa_estado": "activa",
                 "estado": True,
                 "creado_en": "2026-11-18T10:30:00",
                 "actualizado_en": "2026-11-18T10:30:00",
@@ -265,6 +266,9 @@ class UsuarioOut(BaseModel):
     empresa_nombre: Optional[str] = Field(default=None, validation_alias="empresa",
                                           description="Razón social de su empresa, o `null` si no tiene.",
                                           examples=["Distribuidora Andina S.A.S."])
+    empresa_estado: Optional[str] = Field(default=None, description="Estado de su empresa: `pendiente`, `activa`, `rechazada` o "
+                                          "`suspendida`, o `null` si no tiene. Mientras no sea `activa`, no se puede activar.",
+                                          examples=["activa"])
     estado: bool = Field(description="`true` = activo, `false` = inactivo (no puede iniciar sesión).", examples=[True])
     creado_en: datetime = Field(description="Fecha y hora de creación (la pone el servidor).",
                                 examples=["2026-11-18T10:30:00"])

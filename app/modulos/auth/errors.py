@@ -1,6 +1,6 @@
 # Errores del módulo Auth: los mensajes, las funciones que los lanzan y los ejemplos que muestra /docs.
 from app.core.docs import respuesta_error
-from app.core.errors import error_401
+from app.core.errors import error_401, error_422
 from app.modulos.empresas.errors import MSG_PENDIENTE, MSG_RECHAZADA, MSG_SUSPENDIDA
 
 # ===== MENSAJES =====
@@ -13,6 +13,11 @@ MSG_REFRESH_INVALIDO = "Refresh token inválido o vencido"
 
 def credenciales_invalidas():
     return error_401(MSG_CREDENCIALES)
+
+
+def identificador_obligatorio():
+    """422: no llegó ni `correo` ni `identificador`. Se reporta en `correo`, como antes."""
+    return error_422("correo", "es obligatorio")
 
 
 def refresh_invalido():
@@ -37,8 +42,9 @@ DOC_403_EMPRESA = respuesta_error(
 )
 DOC_422_LOGIN = respuesta_error(
     "El cuerpo no cumple las validaciones",
-    campos_faltantes="correo: es obligatorio; contrasena: es obligatorio",
-    correo_invalido="correo: formato de correo inválido",
+    sin_contrasena="contrasena: es obligatorio",
+    sin_correo_ni_identificador="correo: es obligatorio",
+    correo_vacio="correo: no puede estar vacío",
     json_invalido="El cuerpo de la petición no es un JSON válido",
 )
 DOC_422_REFRESH = respuesta_error(

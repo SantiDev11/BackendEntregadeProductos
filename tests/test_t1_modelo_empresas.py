@@ -37,6 +37,8 @@ def estructura() -> dict:
 def test_las_migraciones_dejan_la_misma_estructura_que_los_modelos(base_antes_de_005):
     correr_sql(MIGRACION)
     correr_sql(NUMERACION)  # T10
+    correr_sql(RAIZ / "migraciones" / "010_desactivado_por_empresa.sql")  # suspensión en cascada
+    correr_sql(RAIZ / "migraciones" / "011_desactivado_por_rol.sql")  # rol en cascada
     migrada = estructura()
     vaciar_base()
     Base.metadata.create_all(bind=engine)

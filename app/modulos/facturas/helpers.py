@@ -179,7 +179,7 @@ def factura_salida(orden: Orden) -> dict:
         "adquiriente": orden.adquiriente_datos,
         "bodega": {
             "id": bodega.id, "nombre": bodega.nombre, "codigo": bodega.codigo, "direccion": bodega.direccion,
-            "ciudad": bodega.ciudad, "recibe_nombre": bodega.recibe_nombre, "recibe_documento": bodega.recibe_documento,
+            "ciudad": bodega.ciudad, "correo": bodega.correo, "recibe_nombre": bodega.recibe_nombre, "recibe_documento": bodega.recibe_documento,
             "recibe_cargo": bodega.recibe_cargo, "recibe_telefono": bodega.recibe_telefono,
         },
         "detalle": [detalle_salida(d) for d in orden.detalles],
@@ -301,6 +301,10 @@ def validate_tipos(db: Session, lineas, bodega_id: int, ya_estaban: set[int] = f
     if len(tipos) != len(ids):
         raise errors.tipos_no_existen()
     if any(t.bodega_id not in (None, bodega_id) for t in tipos):
+        raise errors.tipos_de_otra_bodega()
+    # Un tipo general (sin bodega) de una empresa solo sirve en las facturas de esa empresa
+    empresa_de_la_bodega = queries.obtener_bodega(db, bodega_id).empresa_id
+    if any(t.bodega_id is None and t.empresa_id not in (None, empresa_de_la_bodega) for t in tipos):
         raise errors.tipos_de_otra_bodega()
     if any(not t.estado and t.id not in ya_estaban for t in tipos):
         raise errors.tipos_inactivos()

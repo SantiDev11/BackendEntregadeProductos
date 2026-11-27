@@ -27,8 +27,8 @@ router = APIRouter(
     dependencies=[Depends(get_current_user)],
 )
 
-ALCANCE = ("**Alcance:** el `admin` maneja todos los tipos. Una `empresa`, los de las bodegas de su empresa. "
-           "Cualquier otro usuario solo los de **sus bodegas** "
+ALCANCE = ("**Alcance:** el `admin` maneja todos los tipos. Una `empresa`, todos los de su empresa, también los **generales** "
+           "(sin bodega: quedan así al borrar o desactivar su bodega). Cualquier otro usuario solo los de **sus bodegas** "
            "(las que tienen `bodeguero_id` = su id).")
 
 
@@ -174,7 +174,8 @@ Actualiza un tipo existente. **Solo cambia los campos que se envían.**
 
 **Cuerpo (todos opcionales):**
 - `nombre`: nuevo nombre, de 1 a 100 caracteres.
-- `bodega_id`: **solo admin**, mueve el tipo a otra bodega (debe existir). Si lo envía otro usuario, se ignora. Debe ser un número.
+- `bodega_id`: mueve el tipo a otra bodega. El **admin**, a cualquiera; la **empresa**, a una de las suyas (así asigna una
+  bodega a sus tipos generales); si no es suya, 400. Si lo envía otro usuario, se ignora. Debe ser un número.
 - `estado`: `true` para activar, `false` para desactivar.
 
 **Reglas:**

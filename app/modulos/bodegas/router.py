@@ -228,7 +228,10 @@ Activa o desactiva la bodega sin tocar sus demás datos. Es lo mismo que enviar 
 - Repetir el mismo estado no es error.
 
 **Reglas:**
-- En una bodega inactiva **no se pueden crear facturas** (400). Sus facturas y tipos no cambian.
+- En una bodega inactiva **no se pueden crear facturas** (400). Sus facturas no cambian.
+- Al desactivarla, sus tipos pasan a generales de su empresa (`bodega_id: null`, mismo `empresa_id`) y queda sin bodeguero
+  (`bodeguero_id: null`). Ninguno se borra ni se desactiva. Al reactivarla no vuelven solos: se le asignan de nuevo.
+- Si la desactiva su propio bodeguero, deja de ser suya: solo la empresa o el admin pueden reactivarla.
 - Una `empresa` solo activa o desactiva **sus bodegas**; un bodeguero, las suyas. Otra bodega responde 404.
 - Guarda en `actualizado_por` quién hizo el cambio.
 
@@ -269,8 +272,11 @@ Elimina una bodega de forma **definitiva** (no es un borrado lógico).
 - `bodega_id` (en la ruta): id de la bodega a eliminar.
 
 **Reglas:**
-- Si la bodega tiene facturas, no se elimina y responde 400.
-- Para desactivar una bodega sin borrarla, usa `PUT` con `{{"estado": false}}`.
+- Si la bodega tiene facturas, no se elimina y responde 400: las facturas la necesitan. Se puede desactivar.
+- Sus tipos **no** se borran ni se desactivan: pasan a generales de su empresa (`bodega_id: null`, mismo `empresa_id`),
+  a la espera de otra bodega.
+- Su bodeguero **no** se borra ni se desactiva: solo queda sin esta bodega.
+- Para desactivar una bodega sin borrarla, usa `PATCH /bodegas/{{id}}/estado` con `{{"estado": false}}`.
 
 **Devuelve:** 204 **sin cuerpo**.
 """,

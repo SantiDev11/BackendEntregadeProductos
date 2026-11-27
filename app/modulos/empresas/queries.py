@@ -67,6 +67,29 @@ def lo_que_impide_eliminar(db: Session, empresa_id: int) -> list[str]:
     return list(dict.fromkeys(encontrados))  # sin repetidos, en orden
 
 
+def suspender_en_cascada(db: Session, empresa_id: int) -> None:
+    """Desactiva los usuarios, bodegas y tipos activos de la empresa y los marca, para saber cuáles reactivar después.
+    Lo que ya estaba inactivo no se marca: al reactivar la empresa sigue inactivo. No hace commit.
+    (Un usuario inactivo por su rol tampoco se marca: si reactivan el rol mientras la empresa no está activa, el rol lo deja
+    esperando a la empresa.)"""
+    for modelo in (Usuario, Bodega, Tipo):
+        db.query(modelo).filter(modelo.empresa_id == empresa_id, modelo.estado.is_(True)).update(
+            {modelo.estado: False, modelo.desactivado_por_empresa: True}, synchronize_session=False)
+
+
+def reactivar_en_cascada(db: Session, empresa_id: int) -> None:
+    """Vuelve a activar solo lo que desactivó la suspensión. Un usuario cuyo rol sigue inactivo pierde la marca de la
+    empresa pero sigue inactivo: lo reactivará su rol. No hace commit."""
+    for modelo in (Bodega, Tipo):
+        db.query(modelo).filter(modelo.empresa_id == empresa_id, modelo.desactivado_por_empresa.is_(True)).update(
+            {modelo.estado: True, modelo.desactivado_por_empresa: False}, synchronize_session=False)
+    marcados = (Usuario.empresa_id == empresa_id, Usuario.desactivado_por_empresa.is_(True))
+    db.query(Usuario).filter(*marcados, Usuario.desactivado_por_rol.is_(True)).update(
+        {Usuario.desactivado_por_empresa: False}, synchronize_session=False)
+    db.query(Usuario).filter(*marcados).update({Usuario.estado: True, Usuario.desactivado_por_empresa: False},
+                                               synchronize_session=False)
+
+
 def bloquear(db: Session, empresa_id: int) -> None:
     """Bloquea la fila de la empresa hasta el commit: mientras se borra, nadie puede crearle usuarios, bodegas ni tipos."""
     db.query(Empresa.id).filter(Empresa.id == empresa_id).with_for_update().one()

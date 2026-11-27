@@ -242,8 +242,8 @@ def test_no_se_puede_usar_lo_de_otra_empresa_al_crear_o_editar(m):
             r = m.pedir(quien, metodo, ruta, cuerpo)
             assert r.status_code == 400, (quien, metodo, ruta, otra, r.status_code, r.text)
     assert foto() == antes
-    r = m.pedir("X", "PUT", f"/tipos/{tx}", {"bodega_id": m.id["bodega bY"]})  # mover un tipo: solo admin, se ignora
-    assert r.status_code == 200 and r.json()["bodega_id"] == bx
+    r = m.pedir("X", "PUT", f"/tipos/{tx}", {"bodega_id": m.id["bodega bY"]})  # la empresa mueve tipos solo entre sus bodegas (T21)
+    assert r.status_code == 400 and m.pedir("X", "GET", f"/tipos/{tx}").json()["bodega_id"] == bx
 
 
 def test_empresa_elige_bodeguero_de_su_empresa(m):
@@ -316,10 +316,8 @@ def test_empresa_edita_y_elimina_sus_bodegueros(m):
     r = m.pedir("X", "POST", "/usuarios", {"nombre": "N", "correo": "n@t.com", "contrasena": CLAVE})
     n = r.json()["id"]
     b = m.crear("/bodegas", "X", datos_bodega("DEL", bodeguero_id=n))
-    r = m.pedir("X", "DELETE", f"/usuarios/{n}")
-    assert (r.status_code, r.json()) == (400, {"detail": "No se puede eliminar: el usuario tiene bodegas asignadas"})
-    assert m.pedir("X", "DELETE", f"/bodegas/{b}").status_code == 204
-    assert m.pedir("X", "DELETE", f"/usuarios/{n}").status_code == 204
+    assert m.pedir("X", "DELETE", f"/usuarios/{n}").status_code == 204  # su bodega no lo impide: queda sin bodeguero (T21)
+    assert m.pedir("X", "GET", f"/bodegas/{b}").json()["bodeguero_id"] is None
 
 
 def test_rol_id_sigue_siendo_obligatorio_para_el_admin(m):

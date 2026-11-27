@@ -20,8 +20,10 @@ from app.modulos.usuarios.models import Usuario
 
 
 def login(datos: LoginRequest, db: Session) -> LoginResponse:
-    """Valida correo y contraseña y devuelve tokens JWT con los datos del usuario."""
-    usuario = validar_credenciales(db, datos.correo, datos.contrasena)
+    """Valida el correo o el número de documento y la contraseña, y devuelve tokens JWT con los datos del usuario."""
+    if not datos.usuario:
+        raise errors.identificador_obligatorio()
+    usuario = validar_credenciales(db, datos.usuario, datos.contrasena)
     access = create_access_token(usuario.id, usuario.rol.nombre)
     refresh = create_refresh_token(usuario.id)
     return LoginResponse(access_token=access, refresh_token=refresh, user=usuario_salida(usuario))
@@ -52,9 +54,11 @@ def refresh(datos: RefreshRequest, db: Session) -> RefreshResponse:
         .filter(Usuario.id == user_id)
         .first()
     )
-    if usuario is None or not usuario.estado:
+    if usuario is None or not (usuario.estado or usuario.desactivado_por_empresa):
         raise errors.refresh_invalido()
-    validate_empresa_activa(usuario)  # 403 si su empresa dejó de estar activa
+    validate_empresa_activa(usuario)  # 403 si su empresa dejó de estar activa (también si la suspensión lo desactivó)
+    if not usuario.estado:
+        raise errors.refresh_invalido()
 
     # Emitir tokens nuevos (rotación: el refresh anterior queda obsoleto)
     new_access = create_access_token(usuario.id, usuario.rol.nombre)

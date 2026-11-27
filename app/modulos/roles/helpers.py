@@ -22,10 +22,13 @@ def validate_puede_renombrar(rol: Rol, nombre: str, usuario: Usuario) -> None:
         raise errors.rol_base()
 
 
-def validate_puede_desactivar(rol: Rol, estado: bool) -> None:
-    """Lanza 400 si se intenta desactivar un rol base: sin ellos no hay registro, bodegueros ni admin."""
-    if estado is False and rol.nombre in PLANTILLAS:
-        raise errors.base_no_se_desactiva()
+def validate_puede_desactivar(rol: Rol, estado: bool, usuario: Usuario) -> None:
+    """Lanza 400 si se intenta desactivar el rol admin, o el propio rol de quien hace el cambio (se quedaría sin acceso).
+    Los demás roles sí se pueden desactivar: dejan de asignarse y sus usuarios quedan inactivos hasta que se reactive."""
+    if estado is False and rol.nombre == "admin":
+        raise errors.admin_no_se_desactiva()
+    if estado is False and usuario.rol_id == rol.id:
+        raise errors.propio_rol()
 
 
 def validate_unique_rol_name(db: Session, nombre: str, excluir_id: int | None = None) -> None:

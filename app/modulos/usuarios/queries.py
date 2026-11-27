@@ -83,6 +83,6 @@ def tiene_facturas(db: Session, usuario_id: int) -> bool:
     return db.query(Orden).filter(or_(Orden.cliente_id == usuario_id, Orden.bodeguero_id == usuario_id)).first() is not None
 
 
-def tiene_bodegas(db: Session, usuario_id: int) -> bool:
-    """True si el usuario es dueño de alguna bodega."""
-    return db.query(Bodega).filter(Bodega.bodeguero_id == usuario_id).first() is not None
+def soltar_bodegas(db: Session, usuario_id: int) -> None:
+    """Las bodegas que tenía a cargo quedan sin bodeguero, a la espera de otro. No hace commit."""
+    db.query(Bodega).filter(Bodega.bodeguero_id == usuario_id).update({Bodega.bodeguero_id: None}, synchronize_session=False)

@@ -58,11 +58,14 @@ def get_current_user(
         .first()
     )
 
-    # El usuario del token ya no existe en la BD o fue desactivado
-    if usuario is None or not usuario.estado:
+    # El usuario del token ya no existe en la BD o fue desactivado. Si lo desactivó la suspensión de su empresa,
+    # responde el 403 de la empresa, como antes de que existiera la cascada
+    if usuario is None or not (usuario.estado or usuario.desactivado_por_empresa):
         raise _no_autorizado("Token inválido o vencido")
 
     validate_empresa_activa(usuario)
+    if not usuario.estado:
+        raise _no_autorizado("Token inválido o vencido")
     return usuario
 
 

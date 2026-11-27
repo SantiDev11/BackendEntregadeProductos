@@ -243,6 +243,8 @@ Activa o desactiva el usuario sin tocar sus demás datos. Es lo mismo que enviar
 
 **Reglas:**
 - Un usuario inactivo **no puede iniciar sesión** y su token deja de funcionar (401).
+- Al desactivar a un bodeguero, sus bodegas quedan sin bodeguero (`bodeguero_id: null`); no se desactivan. Sus facturas y
+  tipos tampoco cambian. Al reactivarlo no las recupera solo: se le asignan de nuevo.
 - Nadie puede desactivarse a sí mismo (400).
 - Solo el `admin` puede activar o desactivar a un admin (403).
 - Una `empresa` solo activa o desactiva a **sus bodegueros**; otro usuario responde 404.
@@ -407,7 +409,9 @@ Elimina un usuario de forma **definitiva** (no es un borrado lógico).
 
 **Reglas:**
 - El admin **no puede eliminarse a sí mismo**, y solo un admin puede eliminar a otro (403 a los demás).
-- Para quitarle el acceso sin borrarlo, usa `PUT` con `{"estado": false}`.
+- Si tiene facturas (como cliente o porque las creó), no se elimina y responde 400. Se puede desactivar.
+- Las bodegas que tenía a cargo **no** se borran ni se desactivan: quedan sin bodeguero (`bodeguero_id: null`), a la espera de otro.
+- Para quitarle el acceso sin borrarlo, usa `PATCH /usuarios/{id}/estado` con `{"estado": false}`.
 
 **Devuelve:** 204 **sin cuerpo**.
 """,
